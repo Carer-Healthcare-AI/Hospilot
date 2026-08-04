@@ -5,8 +5,8 @@ Fabric passes them straight through (no FHIR involved). See CarerOS-Financial-AP
 Uses the generic plain-REST client (clients.rest_client) bound to the financial base URL.
 
 Delivery paths (see fabric/README.md for the full table):
-  • streamed → Kafka → backend Redis:  invoices, claims
-      Registered in sync_map.REST_ENTITIES as `invoice` / `claim` — the two the agents
+  • streamed → Kafka → the backend's internal DB:  invoices, claims
+      Registered in topic_map.REST_ENTITIES as `invoice` / `claim` — the two the agents
       need to react to. They keep HTTP routes as well, for filtered/list queries.
   • runtime pass-through (the other 11):  line items, claim history/queries, payments,
       payment entries, refunds, contracts, contract rates, collections, reconciliation.

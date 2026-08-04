@@ -1,7 +1,8 @@
-"""Initial-sync service: thin pass-through over the DB's keyset-paginated
-/api/sync/<table> endpoints.
+"""Which tables are syncable, and a one-page pass-through to fetch them.
 
-This is used ONCE by the main backend to populate Redis from scratch with a
+Thin layer over the DB's keyset-paginated /api/sync/<table> endpoints.
+
+This is used ONCE by the main backend to populate the backend's internal DB from scratch with a
 full dump of each table, before the Kafka change-feed mechanism takes over for
 incremental updates. Fabric does not transform these rows — it forwards the DB's
 raw rows + pagination envelope so the backend can mirror tables verbatim.
@@ -56,32 +57,12 @@ async def page(
     cursor: str | None = None,
     sync_id: str | None = None,
 ) -> dict:
-    """Fetch one keyset page for `table`, forwarding the DB's envelope as-is."""
+    """Fetch one keyset page for `table`, forwarding the DB's envelope as-is.
+
+    Deliberately one page, not all of them: the backend walks the cursor itself so it can
+    checkpoint between pages. Callers that DO want every row (service/staff, ventilator)
+    use clients.sync_client.fetch_all instead.
+    """
     return await sync_client.fetch_page(
         table, limit=limit, cursor=cursor, sync_id=sync_id
     )
-
-
-async def drain(table: str, *, page_size: int = 200, max_pages: int = 1000) -> list[dict]:
-    """Walk every keyset page of `table` and return all rows.
-
-    Lets the Kafka pollers source entities that have no FHIR feed and no plain-REST
-    list endpoint upstream — the same approach diff_poller uses for lab_result.
-    Raises httpx.HTTPStatusError if the DB hasn't registered /api/sync/<table> yet;
-    the pollers catch per-entity and retry next cycle (so it's inert, not fatal).
-    """
-    rows: list[dict] = []
-    cursor: str | None = None
-    sync_id: str | None = None
-    seen: set[str] = set()
-    for _ in range(max_pages):
-        env = await page(table, limit=page_size, cursor=cursor, sync_id=sync_id)
-        sync_id = sync_id or env.get("sync_id")
-        rows.extend(env.get("rows") or [])
-        pag = env.get("pagination") or {}
-        nxt = pag.get("next_cursor")
-        if not pag.get("has_more") or not nxt or nxt in seen:
-            break
-        seen.add(nxt)
-        cursor = nxt
-    return rows

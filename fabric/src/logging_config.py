@@ -28,8 +28,8 @@ _LEVEL_COLOR = {
 # a logger Fabric actually creates; unmapped names fall back to name[:9].upper().
 _NAME_MAP = {
     # ingest + transport
-    "poller":                               "POLLER   ",   # change_poller, diff_poller, sync_map
-    "kafka":                                "KAFKA    ",   # messaging.kafka_publisher
+    "poller":                               "POLLER   ",   # change_poller, diff_poller, topic_map
+    "kafka":                                "KAFKA    ",   # messaging.producer
     "kafka_consumer":                       "KAFKA_CON",
     "kafka_write":                           "KAFKA_WR ",  # writeback.kafka_write_publisher
     # request-serving APIs

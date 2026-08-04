@@ -22,9 +22,9 @@ import asyncio
 import logging
 
 from config import settings
-from fhirgw.bundle import build_snapshot_bundle, resolve_changes
-from messaging import kafka_publisher as kafka
-from service.change_store import get_change_store, now_iso
+from writeback.bundle import build_snapshot_bundle, resolve_changes
+from writeback.kafka import proposal_publisher
+from writeback.change_store import get_change_store, now_iso
 
 logger = logging.getLogger("kafka_write")
 
@@ -46,7 +46,7 @@ async def _drain_once() -> None:
     for change in resolved:
         bundle = build_snapshot_bundle([change], change.change_id, include_approval=False)
         try:
-            await kafka.publish_write_proposal(
+            await proposal_publisher.publish_write_proposal(
                 change_id=change.change_id,
                 entity=change.entity,
                 record_id=change.record_id,

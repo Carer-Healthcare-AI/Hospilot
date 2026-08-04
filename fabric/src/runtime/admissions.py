@@ -1,8 +1,8 @@
 """Inpatient admissions, discharge readiness, and discharge summaries.
 
 `admission` and `discharge_ready` are streamed entities, so per-record state lives
-in the backend's Redis. What's here are the cohort questions — who is discharge
-eligible, how many will clear within N hours — plus the writes.
+in the backend's internal DB. What's here are the cohort questions — who is discharge
+eligible, how many will clear within N hours — plus the proposals.
 
 Static sub-paths are declared before `/{admission_id}` so they aren't shadowed.
 """
@@ -12,9 +12,10 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from api.runtime._common import _or_404
+from runtime._common import _or_404
 from clients import fhir_client as fc
-from service import clinical, writes, transform as tx
+from service import clinical, transform as tx
+from writeback import proposals
 
 router = APIRouter()
 
@@ -69,7 +70,7 @@ class TransferPending(BaseModel):
 
 @router.post("/admissions/transfer-pending", summary="Flag admissions as transfer-pending (queued as pending changes)")
 async def admissions_transfer_pending(body: TransferPending):
-    await writes.set_admissions_transfer_pending(body.ids)
+    await proposals.set_admissions_transfer_pending(body.ids)
     return {"ok": True, "count": len(body.ids)}
 
 
@@ -88,7 +89,7 @@ class DischargeReady(BaseModel):
 @router.post("/admissions/{admission_id}/discharge-ready",
              summary="Set discharge readiness, with an optional blocked reason (queued as a pending change)")
 async def set_discharge_ready(admission_id: str, body: DischargeReady):
-    await writes.update_discharge_ready(admission_id, body.ready, body.blocked_reason)
+    await proposals.update_discharge_ready(admission_id, body.ready, body.blocked_reason)
     return {"ok": True, "id": admission_id, "ready": body.ready}
 
 
@@ -100,5 +101,5 @@ class AINote(BaseModel):
 @router.post("/discharge-summaries/{admission_id}/ai-note",
              summary="Attach an AI-drafted discharge note to an admission (queued as a pending change)")
 async def set_ai_note(admission_id: str, body: AINote):
-    await writes.set_ai_discharge_note(admission_id, body.note)
+    await proposals.set_ai_discharge_note(admission_id, body.note)
     return {"ok": True, "admission_id": admission_id}

@@ -12,7 +12,7 @@ import pytest
 
 from clients import fhir_client
 from ingest import kafka_consumer as kc
-from messaging import kafka_publisher
+from messaging import data_events as kafka_publisher
 
 
 # ─── harness ──────────────────────────────────────────────────────────────────

@@ -25,9 +25,11 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable
 
 from config import settings
-from service import clinical, initial_sync, sync_map
+from clients import sync_client
+from ingest import topic_map
+from service import clinical
 from ingest.content_hash import content_hash
-from messaging import kafka_publisher as kafka
+from messaging import data_events as kafka
 from service import transform as tx
 
 logger = logging.getLogger("poller")
@@ -94,7 +96,7 @@ async def _fetch_lab_results() -> list[dict]:
     sync_id: str | None = None
     seen_cursors: set[str] = set()
     for _ in range(_LAB_RESULT_MAX_PAGES):
-        env = await initial_sync.page("lab_result", limit=200, cursor=cursor, sync_id=sync_id)
+        env = await sync_client.fetch_page("lab_result", limit=200, cursor=cursor, sync_id=sync_id)
         sync_id = sync_id or env.get("sync_id")
         rows.extend(env.get("rows") or [])
         pag = env.get("pagination") or {}
@@ -123,8 +125,8 @@ CLINICAL_ENTITIES: list[DiffEntity] = [
 
 def registry() -> list[DiffEntity]:
     """Clinical entities (field-delta) + REST entities (full-row hash diff, reused from
-    sync_map.REST_ENTITIES so their contract is identical to change_api mode)."""
-    rest = [DiffEntity(entity, fetch, None) for entity, fetch in sync_map.REST_ENTITIES]
+    topic_map.REST_ENTITIES so their contract is identical to change_api mode)."""
+    rest = [DiffEntity(entity, fetch, None) for entity, fetch in topic_map.REST_ENTITIES]
     return [*CLINICAL_ENTITIES, *rest]
 
 
@@ -137,7 +139,7 @@ def _project(e: DiffEntity, row: dict) -> dict:
 
 async def _maybe_discharge_ready(entity: str, rid: str, row: dict) -> None:
     """Mirror the change_api fan-out: an admission with discharge_ready=true also
-    publishes the full row to the discharge_ready topic (sync_map _map_single)."""
+    publishes the full row to the discharge_ready topic (topic_map _map_single)."""
     if entity == "admission" and row.get("discharge_ready"):
         await kafka.publish("discharge_ready", rid, row, operation="upsert")
 

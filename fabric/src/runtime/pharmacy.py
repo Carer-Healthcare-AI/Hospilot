@@ -2,8 +2,8 @@
 
 pharmacy_order and pharmacy_inventory are streamed (MedicationRequest /
 InventoryItem via the change feed), so agents get live counts from the backend's
-Redis. Everything here is the full-list and rules-table side that Redis keys can't
-hold — see service/pharmacy.py.
+internal DB. Everything here is the full-list and rules-table side that a per-record
+lookup can't hold — see service/pharmacy.py.
 """
 
 from fastapi import APIRouter, Query

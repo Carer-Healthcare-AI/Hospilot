@@ -1,7 +1,7 @@
 """Polling-mode diff poller tests — pure, no live DB / Kafka.
 
 Drives the async diff logic with asyncio.run (no pytest-asyncio, matching the rest of
-the suite) and captures publishes by monkeypatching kafka_publisher.publish.
+the suite) and captures publishes by monkeypatching data_events.publish.
 """
 
 import asyncio
@@ -10,7 +10,8 @@ import json
 import pytest
 
 from ingest import diff_poller as dp
-from messaging import kafka_publisher
+from messaging import data_events as kafka_publisher
+from messaging import producer as kafka_producer
 from service import transform as tx
 
 _REAL_PUBLISH = kafka_publisher.publish      # captured before the autouse fixture patches it
@@ -145,7 +146,7 @@ def test_lab_result_pagination_walks_all_pages(monkeypatch):
         assert table == "lab_result"
         return pages[cursor]
 
-    monkeypatch.setattr(dp.initial_sync, "page", _page)
+    monkeypatch.setattr(dp.sync_client, "fetch_page", _page)
     rows = asyncio.run(dp._fetch_lab_results())
     ids = {r["id"] for r in rows}
     assert ids == {"L1", "L2"}                            # both pages walked, loop terminated
@@ -156,7 +157,7 @@ def test_lab_result_pagination_stops_on_repeated_cursor(monkeypatch):
         # pathological server: always says has_more with the same cursor
         return {"rows": [{"id": "L1"}], "pagination": {"has_more": True, "next_cursor": "STUCK"}}
 
-    monkeypatch.setattr(dp.initial_sync, "page", _page)
+    monkeypatch.setattr(dp.sync_client, "fetch_page", _page)
     rows = asyncio.run(dp._fetch_lab_results())           # must not hang
     assert len(rows) >= 1
 
@@ -194,7 +195,7 @@ def test_publish_payload_omits_changed_unless_given():
             captured["topic"] = topic
             captured["payload"] = json.loads(value.decode())
 
-    kafka_publisher._producer = _Prod()
+    kafka_producer._producer = _Prod()
     try:
         asyncio.run(_REAL_PUBLISH("bed", "B1", {"status": "Available"}))
         assert "changed" not in captured["payload"]      # upsert: byte-parity with today
@@ -203,7 +204,7 @@ def test_publish_payload_omits_changed_unless_given():
         assert captured["payload"]["changed"] == ["status"]
         assert captured["payload"]["operation"] == "patch"
     finally:
-        kafka_publisher._producer = None
+        kafka_producer._producer = None
 
 
 # ─── lab_result_row normalizer ─────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 
 `appointment` and `doctor_slot` are streamed, so the backend caches current state.
 These routes stay because agents need filtered queries (by patient, provider,
-department, status, date, specialization) that Redis keys can't answer.
+department, status, date, specialization) that a per-record lookup can't answer.
 
 Writes queue a PendingChange rather than calling the DB directly — see
 service/appointments.py.

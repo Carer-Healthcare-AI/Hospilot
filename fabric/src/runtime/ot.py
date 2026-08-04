@@ -1,7 +1,7 @@
-"""Operating theatre — the queries and writes Redis can't cover.
+"""Operating theatre — the queries and writes a per-record lookup can't cover.
 
 Deliberately small. ot_room, ot_room_status, ot_schedule and ot_surgery are all
-streamed to hospilot-backend and cached, so agents read theatre state from Redis;
+streamed to hospilot-backend and cached, so agents read theatre state from the internal DB;
 those HTTP reads existed with no callers and were removed. What's left is the one
 uncached table and the reschedule write. See service/ot.py.
 """
@@ -9,7 +9,7 @@ uncached table and the reschedule write. See service/ot.py.
 from fastapi import APIRouter
 
 from service import ot as ot_svc
-from service import writes as writes_svc
+from writeback import proposals
 
 router = APIRouter()
 
@@ -27,4 +27,4 @@ async def get_equipment_usage():
 async def reschedule_surgery(surgery_id: str, body: dict):
     fields = {k: body.get(k) for k in
               ("scheduled_date", "scheduled_start_time", "scheduled_end_time", "ot_room_id", "status")}
-    return await writes_svc.reschedule_surgery(surgery_id, fields)
+    return await proposals.reschedule_surgery(surgery_id, fields)

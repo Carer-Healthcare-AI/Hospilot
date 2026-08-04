@@ -5,8 +5,8 @@ All pharmacy data is REST pass-through: Fabric proxies the DB's plain-REST
 
 pharmacy_orders (MedicationRequest) and pharmacy_inventory (InventoryItem) are
 also FHIR-backed — the change feed picks them up and publishes to Kafka so the
-backend warms Redis. Agents that need live counts read from Redis; these
-pass-through endpoints are for full-list queries that don't fit in Redis keys.
+backend warms its internal DB. Agents that need live counts read from the internal DB; these
+pass-through endpoints are for full-list queries that don't fit a per-record lookup.
 """
 
 import logging

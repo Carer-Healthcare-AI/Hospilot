@@ -20,7 +20,7 @@ from aiokafka import AIOKafkaConsumer
 
 from clients import fhir_client as fc
 from config import settings
-from messaging import kafka_publisher as kafka
+from messaging import data_events as kafka
 from service import transform as tx
 
 logger = logging.getLogger("kafka_consumer")
@@ -139,7 +139,7 @@ async def _fetch_normalized(entity: str, record_id: str, raw_row: dict | None) -
 
 
 # The DB's change feed calls this entity "lab" (matching hospilot.changes.lab),
-# but the rest of Fabric's ingest (sync_map.py, diff_poller.py) and the backend's
+# but the rest of Fabric's ingest (topic_map.py, diff_poller.py) and the backend's
 # data_consumer._ROUTES key it as "lab_order". Remap on publish so kafka mode
 # lands on the same hospilot.data.* topic the other two modes use.
 _PUBLISH_ENTITY = {"lab": "lab_order"}

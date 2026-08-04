@@ -1,7 +1,7 @@
 """Hospital departments — organisational reference data.
 
 Read from the DB's FHIR Organization resources. Not streamed: departments change
-rarely, so there's no Kafka topic for them (see service/sync_map.py) and callers
+rarely, so there's no Kafka topic for them (see ingest/topic_map.py) and callers
 read them live.
 """
 

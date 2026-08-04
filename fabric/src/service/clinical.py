@@ -10,8 +10,8 @@ server cap) to avoid silent truncation.
 
 Delivery paths (see fabric/README.md for the full table): the core clinical entities
 — bed, admission, visit, task, lab_order, lab_result — are BOTH streamed and served
-live, and that is not redundancy. Kafka/Redis holds per-record state (`bed:{id}`),
-while the routes here answer the list, filter and computed questions Redis keys can't:
+live, and that is not redundancy. Kafka + the backend's internal DB hold per-record state,
+while the routes here answer the list, filter and computed questions a per-record lookup can't:
 "which ICU beds are dirty", "who is discharge-eligible", ER pressure. Same entity, two
 different questions.
 """
@@ -23,14 +23,24 @@ PAGE = 200   # DB caps _count at 200
 
 
 # ─── beds ───────────────────────────────────────────────────────────────────────
+def _form_code(loc) -> str | None:
+    """FHIR Location.form code — 'bd' bed, 'wa' ward, 'ro' room.
+
+    A Location models ANY place, so every query that means "beds" has to filter on
+    this. tx.bed() is a mapper, not a validator: hand it a ward and it returns a
+    bed-shaped dict with ward=None, which is how ward records used to leak into
+    /beds/dirty.
+    """
+    return loc.form.coding[0].code if (loc.form and loc.form.coding) else None
+
+
 async def _location_index() -> tuple[dict[str, dict], dict[str, str]]:
     """Active Locations → (beds_by_id, wards_by_id name map). Beds = form 'bd',
     wards = form 'wa' (so partOf can resolve to a ward name)."""
     locs = await fc.search_locations({"status": "active", "_count": PAGE})
     beds_raw, wards = [], {}
     for loc in locs:
-        form = loc.form.coding[0].code if (loc.form and loc.form.coding) else None
-        if form == "wa":
+        if _form_code(loc) == "wa":
             wards[loc.id] = loc.name
         else:
             beds_raw.append(loc)
@@ -52,10 +62,18 @@ async def available_icu_beds() -> list[dict]:
 
 
 async def dirty_beds(icu_only: bool = False) -> list[dict]:
+    """Beds awaiting housekeeping — upstream models these as status=suspended.
+
+    Only form 'bd' Locations count. Wards are permanently suspended upstream (they
+    aren't bookable places), so without this filter every ward is returned as a dirty
+    bed: 8 phantom rows against 4 real ones on the reference dataset.
+    """
     locs = await fc.search_locations({"status": "suspended", "_count": PAGE})
     _, wards = await _location_index()
     out = []
     for loc in locs:
+        if _form_code(loc) != "bd":
+            continue
         b = tx.bed(loc, wards_by_id=wards)
         if icu_only and not tx.is_icu_bed(b):
             continue

@@ -1,6 +1,7 @@
 """Initial-sync endpoints exposed to the main backend.
 
-One-time, keyset-paginated full-table dumps used to populate Redis from scratch
+One-time, keyset-paginated full-table dumps used to seed the backend's internal DB from
+scratch
 before the Kafka change feed takes over for incremental updates. Each Fabric
 endpoint forwards to the DB's matching /api/sync/<table>, passing the cursor /
 sync_id / limit through and returning the DB's pagination envelope unchanged.
@@ -14,7 +15,7 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 
-from service import initial_sync
+from initial_sync import registry
 
 router = APIRouter()
 logger = logging.getLogger("sync_api")
@@ -22,12 +23,12 @@ logger = logging.getLogger("sync_api")
 
 @router.get("/sync/tables", summary="List the tables available for initial sync")
 async def sync_tables():
-    return {"tables": initial_sync.TABLES, "sources": initial_sync.TABLE_SOURCES}
+    return {"tables": registry.TABLES, "sources": registry.TABLE_SOURCES}
 
 
 @router.get(
     "/sync/{table}",
-    summary="Fetch one keyset-paginated page of a table for the initial Redis sync",
+    summary="Fetch one keyset-paginated page of a table for the initial internal-DB sync",
 )
 async def sync_table(
     table: str,
@@ -46,16 +47,16 @@ async def sync_table(
         description="Correlation id returned on the first call. Pass it back on every subsequent call.",
     ),
 ):
-    if not initial_sync.is_valid_table(table):
+    if not registry.is_valid_table(table):
         raise HTTPException(
             status_code=404,
             detail={
                 "error": f"Unknown sync table '{table}'",
-                "valid_tables": initial_sync.TABLES,
+                "valid_tables": registry.TABLES,
             },
         )
     try:
-        return await initial_sync.page(
+        return await registry.page(
             table, limit=limit, cursor=cursor, sync_id=sync_id
         )
     except httpx.HTTPStatusError as exc:

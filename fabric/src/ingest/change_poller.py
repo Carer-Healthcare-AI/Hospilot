@@ -10,7 +10,7 @@ The default ingest mode, and the one to read first. Runs as a single asyncio tas
      fetch the full list and publish only rows whose content hash changed since the
      last cycle. A row is marked seen only after its event is published.
 
-Deletes are not published (the Redis consumer relies on TTLs — see the contract).
+Deletes are not published (the backend's consumer relies on TTLs — see the contract).
 """
 
 import asyncio
@@ -19,8 +19,8 @@ import logging
 from clients import fhir_client as fc
 from config import settings
 from ingest.content_hash import content_hash
-from messaging import kafka_publisher as kafka
-from service import sync_map
+from messaging import data_events as kafka
+from ingest import topic_map
 
 logger = logging.getLogger("poller")
 
@@ -51,7 +51,7 @@ async def _poll_fhir_feed() -> None:
         e["resource"] for e in entries
         if e.get("resource") and (e.get("request") or {}).get("method") in ("PUT", "POST")
     ]
-    upsert_events = sync_map.fhir_resources_to_events(resources)
+    upsert_events = topic_map.fhir_resources_to_events(resources)
 
     # Deletes: the DB sends resource type + id + operation=DELETE; data is null.
     delete_entries = [
@@ -73,7 +73,7 @@ async def _poll_fhir_feed() -> None:
 
     for entry in delete_entries:
         url = (entry.get("request") or {}).get("url", "")
-        for entity, rid in sync_map.fhir_delete_to_events(url):
+        for entity, rid in topic_map.fhir_delete_to_events(url):
             try:
                 await kafka.publish(entity, rid, None, operation="delete")
                 published += 1
@@ -90,7 +90,7 @@ async def _poll_fhir_feed() -> None:
 
 async def _poll_rest() -> None:
     published = 0
-    for entity, fetch in sync_map.REST_ENTITIES:
+    for entity, fetch in topic_map.REST_ENTITIES:
         try:
             rows = await fetch()
         except Exception as exc:

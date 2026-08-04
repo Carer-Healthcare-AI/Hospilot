@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from api.runtime._common import _or_404
+from runtime._common import _or_404
 from service import clinical
 
 logger = logging.getLogger("normalized")

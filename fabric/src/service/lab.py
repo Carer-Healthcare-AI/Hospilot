@@ -4,7 +4,7 @@ Two data access patterns:
 
   • FHIR-backed, streamed — lab_samples (Specimen) + lab_analyzers (Device).
     Fabric fetches from the DB's FHIR API and transforms; the change feed also
-    publishes them to Kafka, so hospilot-backend caches them and agents read Redis.
+    publishes them to Kafka, so hospilot-backend caches them and agents read the internal DB.
 
   • REST pass-through (agent-direct) — qc_logs, reflex_rules, validation_rules,
     capacity_history, critical_escalations. Fabric proxies the DB's plain-REST
@@ -26,7 +26,7 @@ logger = logging.getLogger("lab_service")
 _REST = lambda: settings.db_rest_base_url   # http://192.46.212.81:3001/api  # noqa: E731
 
 
-# ─── FHIR-backed (sync → Redis → agents read from Redis) ─────────────────────
+# ─── FHIR-backed (sync → internal DB → agents read there) ──────────────────────────
 
 async def samples() -> list[dict]:
     specimens = await fc.search_specimens({"_count": "200"})

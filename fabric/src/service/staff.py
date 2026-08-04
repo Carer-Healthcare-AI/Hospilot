@@ -6,12 +6,12 @@ lab_result. Rows pass through in the DB's shape (no transform). Inert until the
 DB registers /api/sync/staff and /api/sync/staff_roster.
 """
 
-from service import initial_sync
+from clients import sync_client
 
 
 async def members() -> list[dict]:
-    return await initial_sync.drain("staff")
+    return await sync_client.fetch_all("staff")
 
 
 async def roster() -> list[dict]:
-    return await initial_sync.drain("staff_roster")
+    return await sync_client.fetch_all("staff_roster")

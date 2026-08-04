@@ -7,7 +7,7 @@ POST /fhir/Bundle/$pending-changes/$acknowledge, after which the queue is cleare
 """
 
 from fhirgw import terminology as T
-from service.change_store import PendingChange, get_change_store, new_change_id, now_iso
+from writeback.change_store import PendingChange, get_change_store, new_change_id, now_iso
 
 # Logical Kafka entity each change_type acknowledges against (drives the ack event's
 # `entity`). Mirrors the entities the read-direction feed publishes, so the backend can
@@ -53,6 +53,14 @@ def _pref(prefix: str, rid: str) -> str:
 
 
 async def update_bed_status(bed_id: str, status: str):
+    """Queue a bed status change for the HIS.
+
+    `raw` carries Hospilot's own word alongside the FHIR code, because
+    terminology.operational_status is lossy: reserved, vacating and occupied all map to
+    "O". Sending only the code would tell the HIS "Occupied" when we mean "reserved",
+    so the bundle also writes the bed-raw-status extension (see bundle._ops_for) — the
+    same extension Fabric reads back in fhirgw.mappers.location.to_internal.
+    """
     op = T.operational_status(status)
     if not op:
         raise ValueError(f"Unknown bed status: {status}")
@@ -61,7 +69,7 @@ async def update_bed_status(bed_id: str, status: str):
         resource_type="Location",
         resource_id=_pref("bed-", bed_id),
         http_method="PATCH",
-        payload={"code": op[0], "display": op[1]},
+        payload={"code": op[0], "display": op[1], "raw": status},
         timestamp=now_iso(),
         change_id=new_change_id(),
         entity=CHANGE_TYPE_ENTITY["bed_status"],

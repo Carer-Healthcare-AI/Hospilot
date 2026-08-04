@@ -53,7 +53,7 @@ REST_ENTITIES = [
     ("claim",          fin_svc.claims),
     # HRMS / ICU (DATA_NEEDED) — sourced by draining the DB keyset sync API. INERT
     # until the DB registers /api/sync/{staff,staff_roster,ventilator}: the fetch
-    # 404s, the poller logs + skips, nothing is published. No Redis routing on the
+    # 404s, the poller logs + skips, nothing is published. No internal-DB routing on the
     # backend either (intentional — these feed a separate consumer, not the cache).
     ("staff",          staff_svc.members),
     ("staff_roster",   staff_svc.roster),

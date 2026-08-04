@@ -462,7 +462,7 @@ def lab_order(sr) -> dict:
     }
 
 
-# ─── lab samples / analyzers (streamed; backend caches them in Redis) ───────────
+# ─── lab samples / analyzers (streamed; backend caches them) ─────────────────────
 def lab_sample(specimen) -> dict:
     idents = getattr(specimen, "identifier", None) or []
     barcode = getattr(idents[0], "value", None) if idents else None
@@ -507,7 +507,7 @@ def lab_analyzer(device) -> dict:
     }
 
 
-# ─── pharmacy orders / inventory (streamed; backend caches them in Redis) ────────
+# ─── pharmacy orders / inventory (streamed; backend caches them) ─────────────────
 def pharmacy_order(med_req) -> dict:
     med = getattr(med_req, "medication", None)          # R5 CodeableReference
     concept = getattr(med, "concept", None) if med else None

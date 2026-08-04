@@ -14,7 +14,7 @@ The DB drains queued writes in three steps:
   3. POST /fhir/Bundle/$pending-changes/$confirm
         {snapshot_id, results: [{change_id, status, reason?, assigned_id?}]}
         The DB reports accepted/rejected per change. Fabric publishes one ack event per
-        change to Kafka (so the backend reconciles Redis + releases its lock), then
+        change to Kafka (so the backend reconciles its internal DB + releases its lock), then
         clears the snapshot (releases the soft lock).
 
 If the DB never confirms within SNAPSHOT_LOCK_TIMEOUT_MS, the lock expires and the
@@ -29,9 +29,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from config import settings
-from fhirgw.bundle import build_snapshot_bundle, resolve_changes
-from messaging import kafka_publisher as kafka
-from service.change_store import SnapshotError, get_change_store, now_iso
+from writeback.bundle import build_snapshot_bundle, resolve_changes
+from messaging import data_events, producer
+from writeback.change_store import SnapshotError, get_change_store, now_iso
 
 logger = logging.getLogger("fhir_api")
 
@@ -40,9 +40,9 @@ def _guard_pull_disabled() -> None:
     """In kafka write mode the DB no longer pulls — proposals are pushed to
     `hospilot.sync.write` by the write publisher. Reject the pull endpoints with 409 so
     they can't race the publisher loop for the same in-memory queue. Guarded on
-    kafka.enabled() too, so the kafka-mode-but-Kafka-disabled dev case keeps the pull
+    producer.enabled() too, so the kafka-mode-but-Kafka-disabled dev case keeps the pull
     active as the only write exit."""
-    if settings.kafka_mode and kafka.enabled():
+    if settings.kafka_mode and producer.enabled():
         raise HTTPException(
             status_code=409,
             detail=("pull disabled: INTEGRATION_MODE=kafka — proposals are pushed to "
@@ -123,7 +123,7 @@ async def confirm_snapshot(body: ConfirmBody):
             continue
         record_id = result.assigned_id or change.record_id
         try:
-            await kafka.publish_ack(
+            await data_events.publish_ack(
                 snapshot_id=body.snapshot_id,
                 change_id=change.change_id,
                 entity=change.entity,

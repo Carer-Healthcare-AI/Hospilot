@@ -8,9 +8,10 @@ Static sub-paths are declared before `/{vital_id}` so they aren't shadowed.
 
 from fastapi import APIRouter, Query
 
-from api.runtime._common import _or_404
+from runtime._common import _or_404
 from clients import fhir_client as fc
-from service import clinical, writes
+from service import clinical
+from writeback import proposals
 
 router = APIRouter()
 
@@ -34,5 +35,5 @@ async def vital_observation(observation_id: str):
 
 @router.post("/vitals/{vital_id}/critical", summary="Flag a vital as critical (queued as a pending change)")
 async def flag_vital_critical(vital_id: str):
-    await writes.flag_critical_vital(vital_id)
+    await proposals.flag_critical_vital(vital_id)
     return {"ok": True, "id": vital_id, "is_critical": True}

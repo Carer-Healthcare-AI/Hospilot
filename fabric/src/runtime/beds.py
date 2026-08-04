@@ -1,8 +1,8 @@
 """Bed occupancy and housekeeping status.
 
-`bed` is a streamed entity, so hospilot-backend holds each bed's current state in
-Redis. These routes exist for the questions Redis keys can't answer — filtered
-subsets (dirty, available ICU, post-op) and the ward-graph joins behind them.
+`bed` is a streamed entity, so hospilot-backend holds each bed's current state in its
+internal DB. These routes exist for the questions a per-record lookup can't answer —
+filtered subsets (dirty, available ICU, post-op) and the ward-graph joins behind them.
 
 Static sub-paths are declared before `/{bed_id}` so they aren't shadowed.
 """
@@ -10,9 +10,10 @@ Static sub-paths are declared before `/{bed_id}` so they aren't shadowed.
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from api.runtime._common import _or_404
+from runtime._common import _or_404
 from clients import fhir_client as fc
-from service import clinical, writes, transform as tx
+from service import clinical, transform as tx
+from writeback import proposals
 
 router = APIRouter()
 
@@ -61,5 +62,5 @@ class BedStatus(BaseModel):
 
 @router.post("/beds/{bed_id}/status", summary="Set a bed's status (queued as a pending change)")
 async def set_bed_status(bed_id: str, body: BedStatus):
-    await writes.update_bed_status(bed_id, body.status)
+    await proposals.update_bed_status(bed_id, body.status)
     return {"ok": True, "id": bed_id, "status": body.status}

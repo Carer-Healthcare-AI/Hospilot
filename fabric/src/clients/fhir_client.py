@@ -227,7 +227,7 @@ async def read_patient(rid: str) -> Patient | None:
     return _parse_one(Patient, await _get_or_none(f"Patient/{rid}"), "Patient")
 
 
-# ─── writes (normalized → FHIR is done in service.writes; this is transport) ────
+# ─── writes (normalized → FHIR is done in writeback.proposals; this is transport) ────
 async def patch(resource_type: str, resource_id: str, ops: list[dict]) -> dict:
     """FHIR JSON-Patch (RFC 6902) against {base}/{Type}/{id}.
 
