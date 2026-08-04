@@ -64,7 +64,11 @@ def _ops_for(change: PendingChange) -> list[dict]:
     p = change.payload
     match change.change_type:
         case "bed_status":
-            return [{
+            # Two ops, because the FHIR field alone is lossy: reserved / vacating /
+            # occupied all collapse to "O". The extension carries Hospilot's own word so
+            # the HIS receives what we actually meant, and so a read-back returns it
+            # (location.to_internal prefers bed-raw-status over operationalStatus).
+            ops = [{
                 "type": "replace",
                 "path": "Location.operationalStatus",
                 "value_key": "valueCoding",
@@ -74,6 +78,13 @@ def _ops_for(change: PendingChange) -> list[dict]:
                     "display": p["display"],
                 },
             }]
+            if p.get("raw"):
+                ops.append({
+                    "type": "add", "parent": "Location", "name": "extension",
+                    "value_key": "valueExtension",
+                    "value": X.ext_string(X.EXT_BED_RAW_STATUS, p["raw"]),
+                })
+            return ops
         case "triage_score":
             return [{
                 "type": "add", "parent": "Encounter", "name": "extension",

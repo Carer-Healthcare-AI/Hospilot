@@ -199,3 +199,49 @@ def test_confirm_unknown_snapshot_is_409(client):
     r = client.post("/fhir/Bundle/$pending-changes/$confirm",
                     json={"snapshot_id": "ghost", "results": []})
     assert r.status_code == 409
+
+
+# ─── lossy statuses must ride along in bed-raw-status ────────────────────────────
+def test_bed_status_bundle_carries_raw_status(client):
+    """reserved / vacating / occupied all map to FHIR "O", so the code alone would tell
+    the HIS "Occupied" when we mean "reserved". The Bundle must also set the
+    bed-raw-status extension -- the same one location.to_internal reads back."""
+    from fhirgw import extensions as X
+
+    assert client.post("/beds/B1/status", json={"status": "reserved"}).status_code == 200
+    entry = client.get("/fhir/Bundle/$pending-changes").json()["entry"][0]
+    params = entry["resource"]["parameter"]
+
+    def _part(op, name):
+        return next((p for p in op["part"] if p["name"] == name), None)
+
+    coding = [o for o in params if (_part(o, "path") or {}).get("valueString")
+              == "Location.operationalStatus"]
+    assert len(coding) == 1, "expected the standard operationalStatus op"
+    assert _part(coding[0], "value")["valueCoding"]["code"] == "O"
+
+    exts = [o for o in params if (_part(o, "value") or {}).get("valueExtension")]
+    assert len(exts) == 1, f"expected one extension op, got {len(exts)}"
+    ve = _part(exts[0], "value")["valueExtension"]
+    assert ve["url"] == X.EXT_BED_RAW_STATUS
+    assert ve["valueString"] == "reserved", f"raw status not preserved: {ve}"
+
+
+def test_bed_status_lossless_word_survives_a_round_trip(client):
+    """The write says "reserved"; a read of the resulting resource must say "reserved"
+    too, not the squashed "Occupied"."""
+    from fhirgw import extensions as X
+    from fhirgw.mappers import location as loc_map
+    from fhir.resources.location import Location
+
+    assert client.post("/beds/B3/status", json={"status": "reserved"}).status_code == 200
+    entry = client.get("/fhir/Bundle/$pending-changes").json()["entry"][0]
+    params = entry["resource"]["parameter"]
+    ext = next(p["valueExtension"] for op in params for p in op["part"]
+               if p["name"] == "value" and "valueExtension" in p)
+
+    # apply the patch the way the HIS would, then read it back through Fabric's mapper
+    patched = Location(id="bed-B3", status="active", mode="instance",
+                       operationalStatus={"system": X.EXT_BASE, "code": "O"},
+                       extension=[ext])
+    assert loc_map.to_internal(patched)["status"] == "reserved"

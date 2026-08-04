@@ -13,8 +13,7 @@ dependencies = [
     "python-dateutil==2.9.0.post0",
     "fhir.resources==8.2.0",
     "fhir-core==1.1.8",
-    # Transitive, but MUST be pinned: fhir-core 1.1.8 imports `SLOTS` from
-    # annotated_types, which 0.8.0 removed.
+    # fhir-core 1.1.8 imports `SLOTS` from annotated-types, removed in 0.8.0.
     "annotated-types==0.7.0",
 ]
 

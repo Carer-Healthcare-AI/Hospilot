@@ -207,3 +207,37 @@ def test_financial_upstream_paths(monkeypatch):
         "contracts",
         "contracts/ct-1/rates",
     ]
+
+
+# ─── dirty beds must be beds (regression guard) ─────────────────────────────────
+def _suspended(loc):
+    """Same Location, status=suspended — how upstream marks a bed as needing cleaning."""
+    return type(loc).model_validate({**loc.model_dump(exclude_none=True), "status": "suspended"})
+
+
+def test_dirty_beds_excludes_wards(monkeypatch):
+    """Wards are permanently status=suspended upstream because they aren't bookable.
+
+    tx.bed() maps anything handed to it, so without a form=='bd' filter every ward comes
+    back as a dirty bed (8 phantoms against 4 real ones on the reference dataset). The
+    phantoms have no ward, so they slipped past /beds/dirty-icu but not /beds/dirty --
+    and the SLA evaluator then tracked wards as beds stuck in cleaning forever.
+    """
+    import asyncio
+    from service import clinical
+
+    dirty_bed = _suspended(_bed("B9", "ICU-09", "K"))       # a genuinely dirty ICU bed
+    suspended_wards = [_suspended(_ward("W1", "ICU")), _suspended(_ward("W2", "Cardiology"))]
+
+    async def _locations(params):
+        if params.get("status") == "suspended":
+            return [dirty_bed, *suspended_wards]
+        return [_bed("B1", "ICU-01", "U"), _ward("W1", "ICU")]
+
+    monkeypatch.setattr(fhir_client, "search_locations", _locations)
+
+    out = asyncio.run(clinical.dirty_beds())
+    assert [b["id"] for b in out] == ["B9"], f"wards leaked into dirty beds: {out}"
+
+    icu = asyncio.run(clinical.dirty_beds(icu_only=True))
+    assert [b["id"] for b in icu] == ["B9"]
