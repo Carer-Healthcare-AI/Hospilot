@@ -1,0 +1,245 @@
+task,result,what_was_tested
+check_sample_collection,PASS,"collected+pending <= total, pending list capped at 10, warning alert iff pending"
+check_sample_transport,PASS,"delayed_samples mirrors delayed_count (cap 10), one alert per delayed sample"
+verify_sample_receipt,PASS,"missing_samples mirrors missing_count (cap 10), one critical alert per miss"
+trigger_sample_search,PASS,search_triggered is 0/1 and equals 1 iff something is misplaced
+get_lab_tat_status,PASS,TAT status counts present; stat_overdue <= overdue
+get_critical_lab_results,PASS,result category counts sum within total_results
+check_analyzer_overload,PASS,overloaded flag agrees with the overloaded list
+validate_alternate_analyzer,PASS,validated flag present; keys well-formed
+execute_sample_routing,PASS,routed_count present and non-negative
+restore_routing_capacity,PASS,restored flag + normalised_count present
+check_analyzer_utilization,PASS,"overloaded_count matches list, within total_online"
+identify_alternate_analyzer,PASS,alternate_available agrees with candidate_count
+rebalance_analyzer_workload,PASS,rebalanced flag present
+trigger_maintenance_alert,PASS,alerted flag present
+get_historical_demand,PASS,has_history flag drives whether history stats are present
+check_capacity_threshold,PASS,at_risk flag + capacity figures present
+surge_notify_command,PASS,notified flag + recent average present
+run_workload_forecast,PASS,forecast returns summary + surge flag (Claude-backed)
+forecast_analyzer_util,PASS,forecast_available flag present (ML-backed)
+forecast_test_volume,PASS,forecast_available flag present (ML-backed)
+detect_critical_results,PASS,critical_count matches critical_results list
+notify_physician_critical,PASS,notified_count + unacked_escalations present
+escalate_icu_er_critical,PASS,escalated_count present (upsert now includes test_name)
+log_critical_action,PASS,logged flag present (upsert now includes test_name)
+check_qc_status,PASS,passed+failed within total runs; qc_failed flag agrees
+trigger_recalibration,PASS,recalibration_triggered flag present
+repeat_qc_check,PASS,passed / repeat_passed / still_failing present
+compliance_alert,PASS,alerted flag + 24h QC failure count present
+check_stat_status,PASS,stat_count matches stat_samples list
+apply_icu_er_priority,PASS,prioritized_count within icu_er_total
+check_analyzer_available,PASS,available_count matches analyzers list
+escalate_tat_risk,PASS,escalated flag + at_risk_count present
+check_tat_threshold,PASS,overdue list within overdue_count; stat_overdue <= overdue
+analyze_tat_bottleneck,PASS,bottleneck stage/count present with pending+in_progress
+prioritize_stat_queue,PASS,reprioritized_count within the stat_orders list
+escalate_tat_supervisor,PASS,escalated flag + active_orders_count present
+detect_abnormal_result,PASS,abnormal_count matches abnormal_results list
+evaluate_reflex_rules,PASS,recommended_count matches recommendations list
+recommend_additional_test,PASS,recommendations list + sent_count present (Claude-backed)
+create_reflex_order,PASS,orders_created present and non-negative
+validate_result_rules,PASS,flagged_count matches flagged_results list
+check_delta_flag,PASS,delta_failed_count matches delta_failures list
+check_critical_value_flag,PASS,critical_count matches critical_items list
+release_validated_report,PASS,released_count present and non-negative
+get_er_visits,PASS,returns a list of encounter records (dicts)
+check_er_boarders,PASS,boarders count >= 0; escalated within boarders
+forecast_er_surge,PASS,forecast envelope present; total_expected sane when available
+forecast_er_wait_time,PASS,forecast envelope present; predicted wait non-negative
+forecast_er_boarding,PASS,forecast envelope present; boarding status/risk reported
+forecast_er_lwbs,PASS,forecast envelope present; predicted LWBS count non-negative
+triage_er_patients,PASS,one triage record per visit with a NEWS2 score + token
+route_fasttrack_patients,PASS,fasttrack_candidates within the triaged patients
+select_critical_patients,PASS,returns at most n critical patients from the triaged set
+detect_cardiac_arrest,PASS,cardiac_arrest_suspected + code_blue_triggered flags present
+check_spo2_critical,PASS,spo2_critical + escalated flags present
+detect_clinical_protocol,PASS,protocol_count matches protocols list
+notify_specialist,PASS,notified count + specialists_notified list present
+get_icu_census,PASS,"admissions/beds are lists, bed_by_id maps every available bed"
+forecast_icu_demand,PASS,forecast envelope; predicted 24h admissions non-negative
+forecast_icu_occupancy,PASS,forecast envelope; occupied/free beds non-negative
+analyze_icu_status,PASS,produces step-down/escalation candidate lists + summary
+create_icu_approval,PASS,creates an approval task from analysis candidates
+confirm_icu_actions,PASS,flags critical vitals and stages transfers (counts >= 0)
+rank_icu_requests,PASS,ranked_requests list; risk/ventilator counts within it
+prioritize_ventilator_bed,PASS,ventilator_priority_count within ranked_requests
+reserve_icu_admission,PASS,reserves top-ranked admission (approval_id + patient_token)
+trigger_overflow_evaluation,PASS,overflow_triggered flag + patients_pending count
+escalate_deterioration,PASS,escalated flag/count present
+get_discharge_candidates,PASS,returns a list of admission records with ids
+get_discharge_records,PASS,returns a list of discharge records
+forecast_discharge_volume,PASS,forecast envelope; predicted_discharges non-negative when available
+forecast_delayed_discharge,PASS,forecast envelope; predicted_delayed_discharges non-negative when available
+batch_assess_discharges,PASS,one assessment per admission with discharge_ready flag + ids
+create_discharge_approval,PASS,creates an approval from ready admissions
+confirm_discharge_updates,PASS,confirms staged discharge updates (count present)
+check_notes_completeness,PASS,notes_incomplete flag agrees with the incomplete_admissions list
+request_missing_docs,PASS,requested count present and non-negative
+check_pending_results,PASS,results_pending flag agrees with admissions_with_pending list
+detect_claim_discrepancies,PASS,discrepancies list within discrepancy_count
+validate_insurance_eligibility,PASS,eligibility issue counts present within total_claims
+check_billing_compliance,PASS,total_compliance_issues = claim + invoice issue counts
+track_pending_payments,PASS,high_value_invoices within high_value_count; amounts sane
+detect_revenue_leakage,PASS,leakage_detected flag agrees with estimated_leakage
+prioritize_payments,PASS,prioritized_count + total_recoverable present
+trigger_payment_reminder,PASS,reminders_sent present and non-negative
+notify_followup_team,PASS,notified flag/count present
+forecast_pending_invoices,PASS,forecast envelope; predicted pending invoices non-negative
+generate_billing_recommendations,PASS,recommendation_count matches recommendations list
+get_patient_billing,PASS,returns a billing summary dict (or a structured error when no patient matched)
+create_billing_request,PASS,returns a billing-request result dict (or a structured error)
+identify_revenue_leakage,PASS,leakage_detected flag agrees with leakage_amount
+analyze_resource_utilization,PASS,occupied+available beds within total_beds
+analyze_dept_profitability,PASS,below_target_count within dept_count
+predict_denial_risk_rev,PASS,high+medium risk counts within claims_at_risk
+presubmission_validation_rev,PASS,validation_passed flag + issue counts present
+payer_rule_compliance_rev,PASS,payer compliance issue counts present
+detect_missing_docs_rev,PASS,missing_docs_count within admissions_checked
+forecast_revenue,PASS,forecast envelope; predicted revenue non-negative when available
+optimize_package_utilization,PASS,recommendations list + savings figure present
+escalation_recommendations_rev,PASS,escalation_count matches escalations list
+get_ward_workload,PASS,list of per-ward workload records
+get_hourly_workload,PASS,by_hour + peak/understaffed hours; total_tasks non-negative
+get_documentation_gaps,PASS,has_gaps flag agrees with flagged_wards
+forecast_nurse_demand,PASS,forecast envelope; required nurses non-negative when available
+forecast_doctor_demand,PASS,forecast envelope; required doctors non-negative when available
+analyze_staff_workload,PASS,produces recommendations + high_pressure_wards lists + summary
+create_staff_approval,PASS,creates an approval from staffing recommendations
+confirm_staff_recommendation,PASS,confirms staffing analysis (status + recommendations)
+get_area_staffing,PASS,areas_assessed + understaffed_areas present (empty-area path)
+get_ot_census,PASS,schedule/rooms/room_status are lists; equipment_by_surgery is a dict
+forecast_ot_utilization,PASS,forecast envelope; predicted utilization present when available
+forecast_ot_surgery_volume,PASS,forecast envelope; predicted_surgeries non-negative
+check_ot_room_cleaning,PASS,cleaning_count matches rooms_to_clean list
+check_ot_instrument_readiness,PASS,gap_count matches gaps list
+track_ot_turnaround,PASS,active_count matches rooms_active; utilisation_pct present
+detect_ot_conflicts,PASS,has_conflicts flag agrees with conflict_count
+find_ot_emergencies,PASS,emergency_count matches emergency_cases list
+check_ot_resource_availability,PASS,available_rooms within total_rooms; cases_by_room is a dict
+predict_ot_delays,PASS,high_risk_count within the delay_risks list
+coordinate_ot_staff,PASS,runs on delay/cleaning/instrument gaps and returns a result dict
+handle_ot_emergencies,PASS,runs on emergency cases + rooms and returns a result dict
+optimise_ot_slots,PASS,runs on schedule/rooms/conflicts and returns a result dict
+balance_ot_load,PASS,runs on schedule/rooms and returns a result dict
+score_ot_efficiency,PASS,efficiency_score present and finite
+analyze_ot_capacity,PASS,delay/escalate/proceed/recommendation counts present
+find_ot_theatre_slots,PASS,open_slot_count matches open_slots list; echoes query params
+reschedule_ot_surgery,PASS,returns proposals + rescheduled count + status
+defer_ot_electives,PASS,returns proposals + deferred count + status
+get_available_ambulances,PASS,returns a list of ambulance records with ids
+forecast_ambulance_response,PASS,forecast envelope; predicted response minutes non-negative when available
+assign_ambulance_activity,PASS,assigns a vehicle (vehicle_no + eta) or flags escalation
+create_ambulance_approval,PASS,creates an approval for the assignment
+confirm_ambulance_dispatch,PASS,confirms dispatch (status + vehicle_no)
+get_vacated_beds,PASS,returns a list of vacated bed records
+clean_vacated_beds,PASS,vacated_count matches beds list; dispatched within it
+dispatch_housekeeping,PASS,dispatched count present and non-negative
+get_discharge_ready_patients,PASS,returns a list of discharge-ready patients
+save_pharmacy_report,PASS,saves a report and returns a status
+fetch_dispensing_history,PASS,avg/max daily orders + history sample present
+forecast_pharmacy_demand,PASS,forecast envelope; surge flag + per-drug forecast
+check_dispensing_capacity,PASS,capacity_ok flag + active_order_count + threshold
+notify_pharmacy_surge,PASS,notified flag + active_order_count present
+forecast_pharmacy_stockout,PASS,forecast envelope; stockout risk fields present
+check_polypharmacy,PASS,polypharmacy_count within total_patients
+run_interaction_check,PASS,major/moderate interaction counts + triage note present
+check_allergy_conflict,PASS,conflict_orders within allergy_conflict_count
+approve_safe_dispense,PASS,approved + withheld counts present
+identify_controlled_orders,PASS,controlled_orders within controlled_count
+verify_controlled_authorization,PASS,incomplete docs + missing witness counts present
+check_inventory_variance,PASS,variance_detected flag agrees with variance_count
+escalate_compliance_issue,PASS,escalated flag + issue counts present
+verify_patient_identity,PASS,unverified_orders within unverified_count
+match_medication_prescription,PASS,mismatch_orders within mismatch_count
+validate_dispensing_dosage,PASS,discrepancy_orders within discrepancy_count
+release_or_hold_dispensing,PASS,held_orders within held_count
+check_stock_levels,PASS,out_of_stock_meds within out_of_stock_count
+search_alternate_location,PASS,alternate_found agrees with alternate_count
+reserve_inventory,PASS,reserved_meds within reserved_count
+escalate_critical_shortage,PASS,escalated flag + shortage_medications present
+check_prescription_received,PASS,pending_orders within pending_count
+check_medication_availability,PASS,unavailable_meds within unavailable_count
+track_dispensing_progress,PASS,delayed_meds within delayed_count
+close_fulfilled_orders,PASS,closed_count + dispensed_meds present
+validate_prescription_completeness,PASS,incomplete_orders within incomplete_count
+validate_dosage_range,PASS,unsafe_orders within unsafe_dose_count
+detect_duplicate_medications,PASS,duplicates within duplicate_count
+approve_or_hold_prescription,PASS,held_orders within held_count
+check_stat_medication_orders,PASS,stat_orders within stat_count
+apply_critical_patient_priority,PASS,critical/prioritized counts present
+check_stat_availability,PASS,unavailable_meds within stat_unavailable_count
+escalate_stat_shortage,PASS,escalated flag + shortage_count present
+check_queue_length,PASS,queue_above_threshold agrees with queue_length vs threshold
+analyze_queue_bottleneck,PASS,bottleneck dept + breakdown + in_progress present
+prioritize_stat_medications,PASS,stat_orders list + stat_prioritized present
+escalate_tat_breach,PASS,breach_orders within tat_breach_count
+forecast_pharmacy_queue,PASS,forecast envelope; predicted queue length present
+check_unavailable_medications,PASS,unavailable_meds within unavailable_count
+search_formulary_alternatives,PASS,substitute_available agrees with substitute_count
+request_physician_approval,PASS,approved + pending_approval counts present
+update_substitution_order,PASS,substitution_updated flag + substituted_meds present
+find_available_beds,PASS,returns a list of available bed records
+check_dirty_icu_beds,PASS,dirty_count matches dirty_beds list
+check_dirty_soon_to_release,PASS,returns a beds list
+check_overflow_candidates,PASS,candidates + alternate_wards are lists
+check_temporary_overflow_beds,PASS,candidates list + fast_track/surge counts present
+recommend_transfer_allocation,PASS,returns a recommendation
+recommend_icu_to_ward_transfer,PASS,returns a recommendation
+allocate_overflow_bed,PASS,returns an allocated bed_id (or None when none free)
+trigger_surge_forecast,PASS,returns a forecast payload
+predict_discharge_probability,PASS,returns per-admission discharge predictions
+trigger_clearance_workflow,PASS,returns a triggered flag/count
+predict_discharge_horizon,PASS,discharge-now + freeing-in-4h/24h counts (or error)
+run_surge_model,PASS,returns a demand_forecast
+notify_staffing_agent,PASS,returns a notified flag/count
+recommend_overflow_zone,PASS,returns a recommendation
+trigger_discharge_coordination,PASS,returns a triggered flag/count (writes audit)
+forecast_bed_turnover,PASS,forecast envelope; per-ward turnover forecast present
+forecast_bed_occupancy,PASS,forecast envelope; occupied/free beds non-negative when available
+forecast_bed_ward_capacity,PASS,forecast envelope; per-ward capacity + high_risk_count
+forecast_bed_isolation_demand,PASS,forecast envelope; isolation beds required non-negative when available
+rank_beds_activity,PASS,ranks candidate beds and returns a result payload
+find_beds_for_patients,PASS,returns a list of bed assignments
+create_batch_bed_approval,PASS,creates a batch approval from assignments
+confirm_batch_reservations,PASS,beds_reserved + status present
+release_batch_locks,PASS,releases batch locks and returns a result
+create_bed_approval,PASS,creates an approval for a bed (approval_id)
+confirm_bed_reservation,PASS,confirms a bed reservation (bed_id + status)
+release_bed_lock_activity,PASS,releases a bed lock and returns a result
+query_beds,PASS,candidate_count matches candidates list; per-type counts present
+validate_sanitization,PASS,passed_ids + pending_ids present
+mark_bed_ready,PASS,returns marked bed_ids
+check_room_readiness,PASS,ready_ids + issues present
+validate_oxygen_readiness,PASS,functional_ids + unknown_ids present
+check_monitor_readiness,PASS,functional_ids + unknown_ids present
+sync_ready_status,PASS,synced flag + bed_ids present
+sync_bed_status,PASS,synced flag + bed_ids present
+hold_bed_temporarily,PASS,held flag + bed_id present
+create_emergency_cleaning_task,PASS,creates cleaning task(s) for dirty beds
+dispatch_housekeeping_fast_track,PASS,dispatched count present
+predict_icu_saturation,PASS,risk + saturation_pct present
+get_capacity_snapshot,PASS,discharge horizon + backlog counts present
+run_capacity_forecast,PASS,runs the capacity forecast on a snapshot
+fetch_agent_catalog,PASS,returns the task catalog (list) for an agent
+run_builtin_task,PASS,runs a builtin task by id and returns a status
+evaluate_task_condition,PASS,evaluates a condition expression to a bool
+run_generic_stub,PASS,returns agent_id + status for a generic agent stub
+run_dynamic_task,PASS,generates+runs a dynamic task and returns a status
+run_generated_task,PASS,runs a DB-registered generated task (graceful status when absent)
+cache_prefetch_result,PASS,caches a prefetch result without error
+get_prefetch_cache,PASS,round-trips: a cached result reads back for the same task
+filter_ventilator_beds,PASS,filtered candidates list (subset)
+filter_isolation_beds,PASS,filtered candidates list (subset)
+apply_gender_filter,PASS,filtered candidates list (subset)
+apply_isolation_room_filter,PASS,filtered candidates list (subset)
+trigger_alternate_ward_search,PASS,filtered candidates list (subset)
+escalate_to_floor_supervisor,PASS,returns 'escalated'
+notify_biomedical_team,PASS,returns 'notified'
+create_equipment_task,PASS,returns 'task_id'
+generate_capacity_alert,PASS,returns 'alert_sent'
+recommend_overflow_strategy,PASS,returns 'strategy'
+notify_discharge_team,PASS,returns 'notified'
+alert_operations_team,PASS,returns 'notified'
+escalate_to_command_center,PASS,returns 'escalated'
+escalate_allocation_conflict,PASS,returns 'escalated'

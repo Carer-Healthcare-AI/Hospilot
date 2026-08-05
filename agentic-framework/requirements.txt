@@ -1,0 +1,47 @@
+nexus-rpc==1.4.0
+protobuf==6.33.6
+python-dateutil==2.9.0.post0
+six==1.17.0
+# temporalio is retained ONLY for the inert @activity.defn decorator on the reused
+# task/activity function bodies (temporal/activities/*, services/planner.py).
+# Temporal no longer orchestrates anything — no worker, client, workflows, or signals.
+# Follow-up: strip @activity.defn from those modules to drop this dependency entirely.
+temporalio==1.27.2
+types-protobuf==6.32.1.20260221
+typing_extensions==4.15.0
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+anthropic==0.40.0
+openai>=1.30.0
+RestrictedPython==7.4
+
+redis==5.0.8
+httpx==0.27.2
+python-dotenv==1.0.1
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# FHIR — canonical R4 (R4B/4.3.0) resource models for ingestion + the /fhir API
+fhir.resources==8.2.0
+fhir-core==1.1.8
+# fhir-core 1.1.8 imports `SLOTS` from annotated-types, removed in 0.8.0.
+# Pin to the last version that still exports it (pydantic only needs >=0.4.0).
+annotated-types==0.7.0
+apscheduler==3.10.4
+websockets==13.1
+
+# LangGraph orchestration + durable Postgres checkpointing
+langgraph==0.2.74
+langgraph-checkpoint-postgres==2.0.13
+psycopg[binary,pool]==3.2.3
+
+# Langfuse — LLM/agent tracing & observability
+langfuse==3.15.0
+langchain>=0.3,<2
+
+# Kafka — durable event/replay bus (broadcast() -> Kafka -> API relay -> WebSockets)
+aiokafka==0.11.0
+
+# Auth — JWT tokens + bcrypt password hashing
+PyJWT==2.9.0
+bcrypt==4.2.1

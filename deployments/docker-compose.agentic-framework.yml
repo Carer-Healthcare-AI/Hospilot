@@ -1,0 +1,77 @@
+# Agentic Framework backend (API + LangGraph orchestration + agents).
+#
+# Same project name / network as docker-compose.fabric.yml so the two -f files
+# merge into one stack. Kafka is provided by the fabric compose:
+#
+#   docker compose \
+#     -f deployments/docker-compose.fabric.yml \
+#     -f deployments/docker-compose.agentic-framework.yml up
+#
+# Temporal is optional (TEMPORAL_ENABLED=false by default); the temporal +
+# worker services below are only exercised when you flip it on.
+name: hospilot-internal
+
+services:
+
+  # ── Agentic Framework (API + LangGraph orchestration) ─────────────────────
+  backend:
+    build:
+      context: ../agentic-framework
+      dockerfile: ../deployments/agentic-framework.Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../agentic-framework:/app
+    env_file:
+      - ../agentic-framework/.env
+    environment:
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: kafka:9092
+      FABRIC_BASE_URL: http://fabric:8001
+      TEMPORAL_HOST: temporal:7233
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - hospilot-net
+
+  # ── Temporal worker (agent task activities; only when TEMPORAL_ENABLED=true)
+  worker:
+    build:
+      context: ../agentic-framework
+      dockerfile: ../deployments/agentic-framework.Dockerfile
+    command: python -m workflows.temporal.worker.run_worker
+    volumes:
+      - ../agentic-framework:/app
+    env_file:
+      - ../agentic-framework/.env
+    environment:
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: kafka:9092
+      FABRIC_BASE_URL: http://fabric:8001
+      TEMPORAL_HOST: temporal:7233
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - hospilot-net
+
+  # ── Redis (session/queue/HITL/staging state) ──────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - hospilot-net
+
+networks:
+  hospilot-net:
+    name: hospilot-net

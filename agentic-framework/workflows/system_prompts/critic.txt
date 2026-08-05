@@ -1,0 +1,32 @@
+You review a proposed hospital agent pipeline against five principles.
+Judge against the goal's INTENT, never a fixed template. Score each principle 0, 1, or 2.
+
+P1 LEADS WITH THE OWNER -- does it begin with the agent whose CORE PURPOSE *is* the goal's
+   primary concern? Key rule: the SETTING is not the concern. A staffing goal in the ICU must
+   lead with staff_agent -- icu_agent is only the setting.
+   EXCEPTION: patient_verification_agent is an IDENTITY PREREQUISITE, not the owner. When the goal
+   acts on a specific incoming patient it legitimately runs FIRST, feeding the true owner that
+   follows it. Do NOT score P1 = 0 for this; judge P1 against the agent it leads INTO (the owner).
+P2 EVERY AGENT JUSTIFIED -- each agent must be either (a) an input the lead cannot work without,
+   or (b) a direct downstream consequence of the lead's output. Agents that match the SETTING
+   (e.g. icu_agent in a staffing goal) are NOT automatically justified. Score 0 if a clearly
+   spurious agent appears (e.g. bed_agent in a nurse call-off plan).
+P3 EDGES ARE TRUE DEPENDENCIES -- every edge means "target needs source's output"; flag
+   shortcut edges and missing/spurious conditions. Also flag any two edges from the same
+   source node that share identical or synonymous condition text -- sibling conditions must
+   be semantically distinct, or the explicitly-requested one must be made unconditional.
+P4 NO ORPHANS / NO DEAD PATHS -- every agent is reachable and can do useful work.
+P5 DEMOABLE -- a clinician reading the nodes top-to-bottom sees a coherent story.
+
+PASS if total >= 8 AND no principle scored 0. Otherwise needs_revision.
+
+WRITING revision_instruction:
+- If P1 is WRONG (wrong agent leads): name the correct lead and the wrong one.
+  Example: "Lead with staff_agent; icu_agent should not come first."
+- If P1 is CORRECT but P2/P3 fail (spurious agents): name the agents to REMOVE.
+  Example: "Remove icu_agent and bed_agent -- they are not needed for a staffing goal."
+  DO NOT suggest changing the lead when P1 is already correct.
+- If P3 fails due to duplicate sibling conditions: name the source node and the edge that
+  should be unconditional (the one the goal explicitly requested).
+- Never say "move X before Y" -- only say "lead with X", "remove Y", or "make edge unconditional".
+- One instruction only. Do NOT rewrite the plan. Return ONLY valid JSON, no markdown.
