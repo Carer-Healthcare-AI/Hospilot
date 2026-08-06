@@ -30,7 +30,7 @@ TENANT_TABLES = ["sessions", "approval_tasks", "audit_log", "session_agent_overr
                  "rag_conversation", "rag_message", "rag_memory", "scheduled_queries",
                  "advisory_rules", "advisories"]
 TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)),
-                             "db", "init", "tenant_template.sql")
+                             "schemas", "sql", "tenant_template.sql")
 
 
 class ProvisioningError(RuntimeError):

@@ -15,7 +15,7 @@ this is a drop-in source swap -- the agents' dict logic is untouched.
 
 from cache import redis as cache
 from db.hasura import hasura
-from finance import client
+from agents.revenue.finance import client
 
 
 # --- Invoices ------------------------------------------------------------------

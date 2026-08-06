@@ -330,24 +330,10 @@ def _clinical_detail(item: Any) -> str:
     return ", ".join(parts)
 
 
-def _forecast_detail(item: Any) -> str:
-    """Surface the one usable number a ward-capacity forecast returns. The
-    /bed/ward-capacity model populates predicted_occupied_beds and leaves the rest
-    (available beds, utilization, capacity status) null, so the ward item would
-    otherwise render as a bare ward_type with no forecast."""
-    d = _coerce(item)
-    if not isinstance(d, dict):
-        return ""
-    v = d.get("predicted_occupied_beds")
-    if v is not None and _is_primitive(v) and str(v).strip() != "":
-        return f"{humanize_value(v)} occupied (predicted)"
-    return ""
-
-
 def _list_item(item: Any) -> str:
     """Render one list item: its label, plus decision-basis detail when present."""
     label = _item_label(item)
-    detail = _forecast_detail(item) or _clinical_detail(item)
+    detail = _clinical_detail(item)
     if label and detail:
         return f"{label} — {detail}"
     return label or detail
@@ -394,7 +380,7 @@ def humanize_value(v: Any) -> str:
             return ", ".join(f"{humanize_label(k)}: {humanize_value(val)}" for k, val in visible.items())
         # A patient/decision context dict: show the clinical detail it carries
         # (vitals/scores) rather than just naming its fields.
-        detail = _forecast_detail(v) or _clinical_detail(v)
+        detail = _clinical_detail(v)
         if detail:
             label = _item_label(v)
             return f"{label} — {detail}" if label else detail

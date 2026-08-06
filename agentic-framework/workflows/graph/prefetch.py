@@ -18,7 +18,6 @@ from agents.icu.activities import get_icu_census
 from agents.er.activities import get_er_visits
 from agents.staff.activities import get_ward_workload
 from agents.bed.activities import find_available_beds
-from agents.bed.prediction_activities import get_capacity_snapshot, CapacitySnapshotInput
 from agents.revenue.activities import identify_revenue_leakage
 
 logger = logging.getLogger(__name__)
@@ -46,10 +45,6 @@ async def _query_beds(sid: str) -> dict:
     return {"candidates": (await find_available_beds(sid)) or []}
 
 
-async def _capacity_snapshot(sid: str) -> dict:
-    return await get_capacity_snapshot(CapacitySnapshotInput(session_id=sid, context={}))
-
-
 # task_id -> async fn(session_id) -> the ta_results[task_id] payload.
 # Membership here IS the prefetch-eligibility list.
 PREFETCH_TASK_RUNNERS: dict[str, Callable[[str], Awaitable[dict]]] = {
@@ -58,7 +53,6 @@ PREFETCH_TASK_RUNNERS: dict[str, Callable[[str], Awaitable[dict]]] = {
     "ta_get_er_visits":            _er_visits,
     "ta_get_ward_workload":        _ward_workload,
     "ta_query_beds":               _query_beds,
-    "ta_get_capacity_snapshot":    _capacity_snapshot,
 }
 
 

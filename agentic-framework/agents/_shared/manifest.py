@@ -50,24 +50,6 @@ AGENT_DATA_MANIFEST: dict[str, AgentDataSources] = {
         ],
     ),
 
-    "bed_prediction_agent": AgentDataSources(
-        redis_keys=[
-            "bed:{id}", "bed:ids",
-            "admission:{id}", "admission:ids",
-        ],
-        hasura_tables=["hospilot_beds", "hospilot_admissions"],
-        context_fields=[
-            "_goal", "ta_bed_prediction", "predicted_demand",
-            "occupancy_rate", "predicted_shortage",
-        ],
-        description="Bed demand forecasting, occupancy trend analysis",
-        tool_schemas=[
-            {"name": "fetch_beds_summary",     "description": "Get total/available/ICU bed counts and occupancy percentages",           "input_schema": {"type": "object", "properties": {}, "required": []}},
-            {"name": "fetch_discharge_horizon", "description": "Get count of patients expected to discharge within the next 6 hours",    "input_schema": {"type": "object", "properties": {}, "required": []}},
-            {"name": "fetch_er_pressure",       "description": "Get ER visit counts by CTAS tier -- proxy for upcoming admission demand", "input_schema": {"type": "object", "properties": {}, "required": []}},
-        ],
-    ),
-
     "icu_agent": AgentDataSources(
         redis_keys=[
             "bed:{id}", "bed:ids",

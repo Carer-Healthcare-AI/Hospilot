@@ -36,7 +36,7 @@ _NAME_MAP = {
     "kafka.consumers.bed_agent":            "BED_AGENT",
     "db.fabric":                            "FABRIC   ",
     "db.hasura":                            "HASURA   ",
-    "poller.carerOS_poller":               "POLLER   ",
+    "initial_sync":                         "SYNC     ",
     "cache.redis":                          "REDIS    ",
     "__main__":                             "APP      ",
     "uvicorn":                              "UVICORN  ",

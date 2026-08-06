@@ -8,7 +8,7 @@ fall through to a completed stub in graph.nodes._dispatch_body. appointment_agen
 from workflows.graph.agents.bed import run_bed_body, bid_bed
 from workflows.graph.agents.clinical import run_icu_body, run_staff_body
 from workflows.graph.agents.simple import (
-    run_er_body, run_bed_prediction_body, run_revenue_body,
+    run_er_body, run_revenue_body,
     run_patient_verification_body,
 )
 
@@ -17,7 +17,6 @@ AGENT_BODIES = {
     "er_agent":             run_er_body,
     "icu_agent":            run_icu_body,
     "staff_agent":          run_staff_body,
-    "bed_prediction_agent": run_bed_prediction_body,
     "revenue_agent":        run_revenue_body,
     "patient_verification_agent": run_patient_verification_body,
 }

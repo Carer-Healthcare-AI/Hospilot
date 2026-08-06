@@ -106,13 +106,6 @@ class Settings(BaseSettings):
     # Simulation backend -- proxy target for /simulation/* routes.
     sim_base_url: str = ""   # e.g. http://192.46.212.81:9002
 
-    # ML forecast service -- Hospilot forecasting models (ER surge, bed turnover,
-    # pharmacy/lab demand, ICU demand, board KPIs). Called from inside prediction
-    # subagents via util/forecast_client.py, which degrades gracefully (returns
-    # None) when this is unset or the service is down. Leave blank to disable.
-    forecast_base_url: str = ""   # e.g. http://192.46.212.81:18000
-    forecast_api_key: str = ""    # REQUIRED: sent as X-API-Key header (:18000 returns 401 without it)
-
     # Legacy financial API -- fallback when fabric_base_url is unset.
     # Kept for backwards-compat; prefer FABRIC_BASE_URL in new deployments.
     financial_api_base_url: str = ""

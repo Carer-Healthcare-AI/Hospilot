@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from logging_config import setup_logging
@@ -21,18 +21,11 @@ from cache.redis import init_redis, close_redis
 from api.routes.sessions import router as sessions_router
 from api.routes.approvals import router as approvals_router
 from api.routes.queues import router as queues_router
-from api.routes.schedules import router as schedules_router
 from api.routes.ws import router as ws_router
 from api.routes.agents import router as agents_router
-from api.routes.registry import router as registry_router
-from api.routes.fhir import router as fhir_router
 from api.routes.auth import router as auth_router
 from api.routes.orgs import router as orgs_router
 from api.routes.users import router as users_router
-from api.routes.simulation import router as simulation_router
-from api.routes.advisories import router as advisories_router
-from fhirgw.security import require_fhir_auth
-from fhirgw.outcomes import FHIRError
 
 logger = logging.getLogger("__main__")
 
@@ -82,7 +75,7 @@ async def lifespan(app: FastAPI):
         logger.warning("FABRIC_BASE_URL not set -- agent data reads will fail")
 
     # Cold-start Redis seed — continuous updates come from messaging.data_consumer
-    from messaging.poller.carerOS_poller import run_initial_sync
+    from messaging.initial_sync import run_initial_sync
     await run_initial_sync()
 
     # Multi-tenancy: warm the org routing cache (org_id -> Hasura source/prefix)
@@ -137,28 +130,9 @@ async def lifespan(app: FastAPI):
     reaper_task = asyncio.create_task(start_reaper(), name="approval-reaper")
     reaper_task.add_done_callback(_task_crash("approval-reaper"))
 
-    # Scheduled recurring queries (Phase 6) -- fires saved queries on a cadence as
-    # autonomous background runs. Same reaper-style loop; runs in the API process.
-    scheduler_task = None
-    if settings.scheduler_enabled:
-        from workflows.graph.scheduler import start_scheduler
-        scheduler_task = asyncio.create_task(start_scheduler(), name="query-scheduler")
-        scheduler_task.add_done_callback(_task_crash("query-scheduler"))
-
-    # Advisory engine -- event-first rule evaluation (nudged by the Kafka data
-    # consumer) with a clock fallback for interval rules; fired rules persist to
-    # hospilot_app.advisories.
-    advisory_task = None
-    if settings.advisory_engine_enabled:
-        from workflows.graph.advisory import start_advisory_engine
-        advisory_task = asyncio.create_task(start_advisory_engine(), name="advisory-engine")
-        advisory_task.add_done_callback(_task_crash("advisory-engine"))
-
     # Yield to event loop so tasks can start and fail loudly before first request
     await asyncio.sleep(0)
 
-    if settings.fhir_enabled:
-        logger.info("FHIR API at /fhir  auth=%s", "on" if settings.fhir_api_key else "OFF (dev)")
     logger.info("Ready  http://localhost:8000")
 
     yield
@@ -166,10 +140,6 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Hospilot shutting down...")
     reaper_task.cancel()
-    if scheduler_task:
-        scheduler_task.cancel()
-    if advisory_task:
-        advisory_task.cancel()
     if settings.kafka_enabled:
         from messaging.consumer import stop_ws_relay
         from messaging.data_consumer import stop_data_consumer
@@ -220,21 +190,8 @@ app.include_router(users_router, prefix="/api")
 app.include_router(sessions_router, prefix="/api")
 app.include_router(approvals_router, prefix="/api")
 app.include_router(queues_router, prefix="/api")
-app.include_router(schedules_router, prefix="/api")
-app.include_router(advisories_router, prefix="/api")
 app.include_router(agents_router, prefix="/api")
-app.include_router(registry_router, prefix="/api")
-app.include_router(simulation_router)
 app.include_router(ws_router)
-
-# FHIR R5 API -- separate /fhir namespace, guarded by an optional API key.
-if settings.fhir_enabled:
-    app.include_router(fhir_router, prefix="/fhir", dependencies=[Depends(require_fhir_auth)])
-
-
-@app.exception_handler(FHIRError)
-async def _fhir_error_handler(request: Request, exc: FHIRError):
-    return exc.response()
 
 
 @app.get("/health")

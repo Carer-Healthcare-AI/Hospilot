@@ -34,7 +34,6 @@ _AGENT_ACTIVITIES_FILE: dict[str, str] = {
     "revenue_agent":        "temporal/activities/revenue_activities.py",
     "billing_agent":        "temporal/activities/billing_activities.py",
     "housekeeping_agent":   "temporal/activities/housekeeping_activities.py",
-    "bed_prediction_agent": "temporal/activities/bed_prediction_activities.py",
 }
 
 _TOOL_TO_METHOD: dict[str, str] = {
@@ -61,8 +60,6 @@ _TOOL_TO_METHOD: dict[str, str] = {
     "fetch_overdue_tasks":            "get_overdue_nursing_tasks",
     "fetch_dirty_beds":               "get_dirty_beds",
     "fetch_recently_discharged_beds": "get_recently_discharged_beds",
-    "fetch_discharge_horizon":        "get_discharge_horizon(hours=6)",
-    "fetch_er_pressure":              "get_er_pressure",
 }
 
 _CODEGEN_PROMPT = """\

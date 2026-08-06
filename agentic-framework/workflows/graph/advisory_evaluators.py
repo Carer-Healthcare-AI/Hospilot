@@ -15,17 +15,17 @@ How to add a rule (full guide: docs/agentic-framework/ADVISORY_ENGINE.md):
      - detail: one human sentence used as the advisory body
      - data:   small evidence snapshot (counts, ids) stored as jsonb
      Rules of the road: deterministic async I/O reads only (hasura.get_*,
-     cache.*, util.forecast_client.forecast) -- no LLM calls, no writes.
+     cache.*) -- no LLM calls, no writes.
      Thresholds come from `params` (operator-editable in the DB); always
-     default them. A missing/down data source means NOT fired (forecast()
-     already returns None for this), never an exception.
+     default them. A missing/down data source means NOT fired, never an
+     exception.
 
   2. Register it: EVALUATORS["my_rule_key"] = eval_my_rule
 
   3. Seed the rule row in its own numbered migration (ON CONFLICT (rule_key)
      DO NOTHING) choosing the trigger: `trigger_entities` for change-driven
-     conditions, `check_interval_seconds` for time-driven ones (SLA timeouts,
-     forecasts), or both.
+     conditions, `check_interval_seconds` for time-driven ones (SLA timeouts),
+     or both.
 """
 
 import asyncio
@@ -36,7 +36,6 @@ from typing import Awaitable, Callable
 
 from cache import redis as cache
 from db.hasura import hasura
-from util.forecast_client import forecast
 
 # (fired, detail, data) -- see module docstring
 Evaluator = Callable[[str | None, dict], Awaitable[tuple[bool, str, dict]]]
@@ -49,113 +48,6 @@ def _bed_status_is(bed: dict, status: str) -> bool:
 
 
 # ── Bed Management ────────────────────────────────────────────────────────────
-
-
-def _hours_to_period(hours: int) -> str:
-    """Map an hour horizon to the /bed/turnover forecast_period enum."""
-    if hours <= 3:
-        return "3h"
-    if hours <= 6:
-        return "6h"
-    if hours <= 12:
-        return "12h"
-    if hours <= 24:
-        return "24h"
-    if hours <= 72:
-        return "3d"
-    return "7d"
-
-
-async def _beds_freeing_ml(period: str = "24h") -> int | None:
-    """Beds predicted to free over `period`, summed over wards via the ML
-    /bed/turnover model (payload mirrors agents/bed/prediction_activities.
-    forecast_bed_turnover -- the redesigned per-ward census contract). None when
-    the service is unconfigured/down for every ward -- callers fall back to the DB
-    discharge horizon."""
-    from agents.bed.prediction_activities import (
-        _AVG_CLEANING_TIME_MIN, _clamp, _classify_ward)
-
-    beds, dirty, dr_now, horizon_8h = await asyncio.gather(
-        hasura.get_enriched_beds(), hasura.get_dirty_beds(),
-        hasura.get_discharge_ready_count(), hasura.get_discharge_horizon(8))
-    beds = beds or []
-    if not beds:
-        return None
-
-    total_by_ward: dict[str, int] = {}
-    occ_by_ward: dict[str, int] = {}
-    for b in beds:
-        if not b.get("is_active", True):
-            continue
-        wt = _classify_ward(b.get("ward") or b.get("type") or "")
-        total_by_ward[wt] = total_by_ward.get(wt, 0) + 1
-        if str(b.get("status") or "").lower() == "occupied":
-            occ_by_ward[wt] = occ_by_ward.get(wt, 0) + 1
-    clean_by_ward: dict[str, int] = {}
-    for b in (dirty or []):
-        wt = _classify_ward(b.get("ward") or b.get("type") or "")
-        clean_by_ward[wt] = clean_by_ward.get(wt, 0) + 1
-
-    total_occ = sum(occ_by_ward.values())
-    freeing, got_any = 0, False
-    for wt in sorted(set(total_by_ward) | set(occ_by_ward) | set(clean_by_ward)):
-        occ = occ_by_ward.get(wt, 0)
-        cleaning = clean_by_ward.get(wt, 0)
-        total = max(total_by_ward.get(wt, 0), occ + cleaning)
-        share = (occ / total_occ) if total_occ else 0.0
-        resp = await forecast("/bed/turnover", {
-            "forecast_period":           period,
-            "ward_type":                 wt,
-            "occupied_beds":             int(_clamp(occ, 0, 500)),
-            "total_beds":                int(_clamp(total, occ, 500)),
-            "beds_being_cleaned":        int(_clamp(cleaning, 0, 50)),
-            "expected_discharges_today": round(_clamp(horizon_8h * share, 0, 100), 2),
-            "planned_admissions_today":  0,
-            "recent_discharges_4h":      int(_clamp(dr_now * share, 0, 50)),
-            "avg_cleaning_minutes":      _AVG_CLEANING_TIME_MIN,
-        })
-        if resp is None:
-            continue
-        preds = resp.get("prediction") if isinstance(resp, dict) else None
-        pred = (preds[0] if isinstance(preds, list) and preds else preds if isinstance(preds, dict) else resp) or {}
-        val = next((pred[k] for k in ("beds_available_next_shift", "predicted_free_beds_next_shift",
-                                      "predicted_free_beds", "beds_available",
-                                      "predicted_beds_available", "value") if k in pred), None)
-        if val is not None:
-            freeing += int(val)
-            got_any = True
-    return freeing if got_any else None
-
-
-async def eval_bed_occupancy_forecast(org_id: str | None, params: dict) -> tuple[bool, str, dict]:
-    """Predicted occupancy over the horizon: current occupied + expected ER
-    admissions - beds freeing (ML forecast, else DB discharge horizon)."""
-    summary = await hasura.get_beds_summary() or {}
-    total = int(summary.get("total_beds") or 0)
-    if total <= 0:
-        return False, "no bed data", {}
-    occupied = int(summary.get("occupied_beds") or 0)
-    pressure = await hasura.get_er_pressure() or {}
-    est_admissions = int(pressure.get("est_admissions") or 0)
-    horizon = int(params.get("horizon_hours", 6))
-    threshold = float(params.get("predicted_occupancy_pct_threshold", 95))
-
-    try:
-        freeing, source = await _beds_freeing_ml(_hours_to_period(horizon)), "ml_forecast"
-    except Exception:  # noqa: BLE001 -- ML path is best-effort, horizon is the fallback
-        freeing = None
-    if freeing is None:
-        freeing, source = await hasura.get_discharge_horizon(horizon), "discharge_horizon"
-    freeing = int(freeing or 0)
-    predicted_pct = (occupied + est_admissions - freeing) / total * 100
-    fired = predicted_pct > threshold
-    detail = (f"Predicted bed occupancy {predicted_pct:.0f}% within {horizon}h "
-              f"(now {occupied}/{total}, +{est_admissions} expected ER admissions, "
-              f"-{freeing} beds freeing via {source}), threshold {threshold:.0f}%")
-    return fired, detail, {"predicted_pct": round(predicted_pct, 1), "threshold": threshold,
-                           "occupied": occupied, "total": total, "est_admissions": est_admissions,
-                           "beds_freeing": freeing, "freeing_source": source,
-                           "horizon_hours": horizon}
 
 
 async def eval_er_boarding_pressure(org_id: str | None, params: dict) -> tuple[bool, str, dict]:
@@ -902,29 +794,6 @@ async def eval_rc_revenue_leakage(org_id: str | None, params: dict) -> tuple[boo
 # ── ICU ───────────────────────────────────────────────────────────────────────
 
 
-async def eval_icu_predicted_full(org_id: str | None, params: dict) -> tuple[bool, str, dict]:
-    """ML forecast projects ICU census to meet/exceed capacity within the horizon."""
-    from util.forecast_client import forecast
-    s = await hasura.get_beds_summary() or {}
-    total, occupied = int(_num(s.get("icu_total"))), int(_num(s.get("icu_occupied")))
-    resp = await forecast("/icu/demand", {"icu_occupied": occupied, "icu_total": total})
-    if not resp:  # service down/unconfigured -> not fired (never raise)
-        return False, "", {}
-    pred = resp.get("prediction") if isinstance(resp.get("prediction"), dict) else resp
-    predicted = next((pred[k] for k in ("predicted_admissions_24h", "predicted_admissions",
-                                        "predicted_demand", "value") if k in pred), None)
-    if predicted is None:
-        return False, "", {}
-    projected = occupied + int(_num(predicted))
-    fired = total > 0 and projected >= total
-    detail = f"ICU projected to reach {projected}/{total} beds (+{int(_num(predicted))} predicted in 24h)"
-    return fired, detail, {"predicted_admissions_24h": predicted, "icu_occupied": occupied,
-                           "icu_total": total, "projected": projected}
-
-
-EVALUATORS["icu_predicted_full"] = eval_icu_predicted_full
-
-
 async def eval_icu_nurse_ratio_below_policy(org_id: str | None, params: dict) -> tuple[bool, str, dict]:
     """ICU nurse load exceeds policy (patients-per-nurse too high). Reads staff_roster
     rows for the ICU area; not fired when no ICU nursing roster is present."""
@@ -1046,32 +915,6 @@ def _past_due(value) -> bool:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt < datetime.now(timezone.utc)
-
-
-async def eval_ambulance_demand_surge_predicted(org_id: str | None, params: dict) -> tuple[bool, str, dict]:
-    """ML forecast predicts an emergency-demand surge (ER-surge model as the signal)."""
-    from util.forecast_client import forecast
-    from cache import redis as cache
-    surge_levels = {s.lower() for s in params.get("surge_levels", ["surge", "elevated", "high"])}
-    try:
-        amb = await cache.get_all_ambulances() or []
-    except Exception:
-        amb = []
-    prior = sum(1 for a in amb if a.get("emergency_type"))  # crude prior-hour volume proxy
-    resp = await forecast("/forecast/er-surge", {"prior_hour_volume": prior})
-    if not resp:  # service down/unconfigured -> not fired
-        return False, "", {}
-    rows = resp.get("prediction") or resp.get("forecast") or resp.get("hourly") or []
-    surge_hours = [r for r in rows
-                   if str(r.get("surge_level") or r.get("level") or "").lower() in surge_levels]
-    peak = max((_num(next((r[k] for k in ("predicted_volume", "predicted_arrivals", "value")
-                           if k in r), 0)) for r in rows), default=0.0)
-    fired = bool(surge_hours)
-    detail = f"Demand surge predicted in {len(surge_hours)} upcoming hour(s), peak ~{int(peak)} arrivals"
-    return fired, detail, {"surge_hours": len(surge_hours), "peak_predicted": int(peak)}
-
-
-EVALUATORS["ambulance_demand_surge_predicted"] = eval_ambulance_demand_surge_predicted
 
 
 # ── Pharmacy ──────────────────────────────────────────────────────────────────
@@ -1219,40 +1062,6 @@ async def eval_exec_sla_breaches(org_id: str | None, params: dict) -> tuple[bool
                            "window_hours": window_h, "threshold": min_breaches}
 
 
-async def eval_exec_capacity_forecast(org_id: str | None, params: dict) -> tuple[bool, str, dict]:
-    """Per-ward predicted occupancy -- current census plus ER admission pressure
-    apportioned by occupancy share, minus the discharge horizon -- breaches
-    params.predicted_occupancy_pct in at least params.min_wards_critical wards.
-    Deterministic ward-level sibling of bed_occupancy_forecast_critical (which
-    stays house-level + ML); ER pressure is not scaled to the horizon."""
-    threshold = float(params.get("predicted_occupancy_pct", 90))
-    horizon_h = int(params.get("horizon_hours", 24))
-    min_wards = int(params.get("min_wards_critical", 2))
-    min_beds = int(params.get("min_ward_beds", 5))
-    wards, pressure, freeing = await asyncio.gather(
-        _ward_census(), hasura.get_er_pressure(),
-        hasura.get_discharge_horizon(horizon_h))
-    est_admissions = int((pressure or {}).get("est_admissions", 0) or 0)
-    freeing = int(freeing or 0)
-    total_occ = sum(w["occupied"] for w in wards.values())
-    critical = []
-    for name, w in sorted(wards.items()):
-        if w["total"] < min_beds:
-            continue
-        share = (w["occupied"] / total_occ) if total_occ else 0.0
-        predicted = (w["occupied"] + (est_admissions - freeing) * share) / w["total"] * 100
-        if predicted > threshold:
-            critical.append({"ward": name, "predicted_pct": round(predicted, 1),
-                             "occupied": w["occupied"], "total": w["total"]})
-    fired = len(critical) >= min_wards
-    detail = (f"{len(critical)} ward(s) predicted >{threshold:.0f}% occupancy within "
-              f"{horizon_h}h (+{est_admissions} ER admissions, -{freeing} beds freeing; "
-              f"alert at {min_wards})")
-    return fired, detail, {"critical_wards": critical[:20], "threshold": threshold,
-                           "horizon_hours": horizon_h, "est_admissions": est_admissions,
-                           "beds_freeing": freeing}
-
-
 async def eval_exec_kpi_deteriorating(org_id: str | None, params: dict) -> tuple[bool, str, dict]:
     """Per-topic advisory fire rate in the recent window vs the trailing baseline
     daily average (proxy KPI -- no KPI store exists). A topic needs
@@ -1321,7 +1130,6 @@ async def eval_exec_utilization_imbalance(org_id: str | None, params: dict) -> t
 
 
 EVALUATORS.update({
-    "bed_occupancy_forecast_critical": eval_bed_occupancy_forecast,
     "er_boarding_pressure":            eval_er_boarding_pressure,
     "isolation_beds_full":             eval_isolation_beds_full,
     "discharged_bed_blocked":          eval_discharged_bed_blocked,
@@ -1350,7 +1158,6 @@ EVALUATORS.update({
     "rc_revenue_leakage":              eval_rc_revenue_leakage,
     "exec_stress_index":               eval_exec_stress_index,
     "exec_sla_breaches":               eval_exec_sla_breaches,
-    "exec_capacity_forecast":          eval_exec_capacity_forecast,
     "exec_kpi_deteriorating":          eval_exec_kpi_deteriorating,
     "exec_utilization_imbalance":      eval_exec_utilization_imbalance,
 })

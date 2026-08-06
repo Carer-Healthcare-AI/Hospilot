@@ -12,7 +12,7 @@ Steps (see db/provisioning.py):
   1. Ensure the org row exists in hospilot_app.organizations (control plane).
      --name lets the script create it directly for ops-driven provisioning.
   2. CREATE DATABASE hospilot_org_<slug> via POSTGRES_ADMIN_DSN (or DATABASE_URL).
-  3. Apply db/init/tenant_template.sql to the new database.
+  3. Apply schemas/sql/tenant_template.sql to the new database.
   4. Register it as Hasura source 'org_<slug>' with prefix 't_<slug>_', track the
      four tenant tables, reload metadata.
   5. Mark the org row active with its routing info.

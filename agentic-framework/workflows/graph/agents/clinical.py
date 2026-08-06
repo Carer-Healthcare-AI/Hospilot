@@ -19,8 +19,6 @@ from workflows.planner import SUB_AGENTS
 from agents._shared.prefetch_activities import get_prefetch_cache, GetPrefetchInput
 from agents.icu.activities import (
     get_icu_census, analyze_icu_status, create_icu_approval, confirm_icu_actions,
-    forecast_icu_demand, forecast_icu_occupancy, forecast_icu_stepdown_demand,
-    forecast_icu_ventilator_demand, forecast_icu_los, forecast_icu_staffing_demand,
     rank_icu_requests, prioritize_ventilator_bed, reserve_icu_admission,
     trigger_overflow_evaluation, escalate_deterioration,
     IcuAnalysisInput, IcuApprovalInput, IcuConfirmInput, IcuTransferInput, IcuAdmissionInput,
@@ -28,9 +26,6 @@ from agents.icu.activities import (
 from agents.staff.activities import (
     get_ward_workload, get_hourly_workload, get_area_staffing, get_documentation_gaps,
     analyze_staff_workload, create_staff_approval, confirm_staff_recommendation, requested_staff_areas,
-    forecast_nurse_demand, forecast_doctor_demand,
-    forecast_shift_coverage, forecast_overtime, forecast_absenteeism, forecast_workforce_utilization,
-    forecast_skill_mix,
     StaffAnalysisInput, StaffApprovalInput, StaffConfirmInput, AreaStaffingInput,
 )
 
@@ -128,56 +123,6 @@ async def run_icu_body(sid: str, ctx: dict) -> dict:
     if task_plan is not None and goal:
         seed_planned_slots(task_plan, _ICU_TASKS)
 
-    # Forward-looking ICU demand forecast; runs ahead of the census short-circuits.
-    _icu_fc: dict = {}
-    if task_plan is not None:
-        await plan_subagent("icu_agent", "sa_icu_capacity_forecast", {}, task_plan, ta_results, goal, sid)
-    if subagent_in_plan("sa_icu_capacity_forecast", task_plan) and await should_run_task(
-            "ta_forecast_icu_demand", "sa_icu_capacity_forecast", ta_results, task_plan, sid):
-        ta_results["ta_forecast_icu_demand"] = await forecast_icu_demand(sid, goal)
-        _icu_fc = {"icu_demand_forecast": ta_results["ta_forecast_icu_demand"]}
-
-    # Forward-looking ICU census forecast (occupied/free beds + overflow risk) at a
-    # goal-derived horizon; the census twin of the demand forecast above.
-    if task_plan is not None:
-        await plan_subagent("icu_agent", "sa_icu_occupancy", {}, task_plan, ta_results, goal, sid)
-    if subagent_in_plan("sa_icu_occupancy", task_plan) and await should_run_task(
-            "ta_forecast_icu_occupancy", "sa_icu_occupancy", ta_results, task_plan, sid):
-        ta_results["ta_forecast_icu_occupancy"] = await forecast_icu_occupancy(sid, goal)
-        _icu_fc["icu_occupancy_forecast"] = ta_results["ta_forecast_icu_occupancy"]
-
-    # Forward-looking ICU-to-ward step-down demand forecast (deprecated endpoint).
-    if task_plan is not None:
-        await plan_subagent("icu_agent", "sa_icu_stepdown_demand", {}, task_plan, ta_results, goal, sid)
-    if subagent_in_plan("sa_icu_stepdown_demand", task_plan) and await should_run_task(
-            "ta_forecast_icu_stepdown_demand", "sa_icu_stepdown_demand", ta_results, task_plan, sid):
-        ta_results["ta_forecast_icu_stepdown_demand"] = await forecast_icu_stepdown_demand(sid, goal)
-        _icu_fc["icu_stepdown_demand_forecast"] = ta_results["ta_forecast_icu_stepdown_demand"]
-
-    # Forward-looking ICU ventilator-demand forecast (need + unmet shortfall).
-    if task_plan is not None:
-        await plan_subagent("icu_agent", "sa_icu_ventilator_demand", {}, task_plan, ta_results, goal, sid)
-    if subagent_in_plan("sa_icu_ventilator_demand", task_plan) and await should_run_task(
-            "ta_forecast_icu_ventilator_demand", "sa_icu_ventilator_demand", ta_results, task_plan, sid):
-        ta_results["ta_forecast_icu_ventilator_demand"] = await forecast_icu_ventilator_demand(sid, goal)
-        _icu_fc["icu_ventilator_demand_forecast"] = ta_results["ta_forecast_icu_ventilator_demand"]
-
-    # Forward-looking ICU length-of-stay forecast (avg LOS days + trend).
-    if task_plan is not None:
-        await plan_subagent("icu_agent", "sa_icu_los", {}, task_plan, ta_results, goal, sid)
-    if subagent_in_plan("sa_icu_los", task_plan) and await should_run_task(
-            "ta_forecast_icu_los", "sa_icu_los", ta_results, task_plan, sid):
-        ta_results["ta_forecast_icu_los"] = await forecast_icu_los(sid, goal)
-        _icu_fc["icu_los_forecast"] = ta_results["ta_forecast_icu_los"]
-
-    # Forward-looking ICU nurse-staffing-demand forecast (peak nurses + short hours).
-    if task_plan is not None:
-        await plan_subagent("icu_agent", "sa_icu_staffing_demand", {}, task_plan, ta_results, goal, sid)
-    if subagent_in_plan("sa_icu_staffing_demand", task_plan) and await should_run_task(
-            "ta_forecast_icu_staffing_demand", "sa_icu_staffing_demand", ta_results, task_plan, sid):
-        ta_results["ta_forecast_icu_staffing_demand"] = await forecast_icu_staffing_demand(sid, goal)
-        _icu_fc["icu_staffing_demand_forecast"] = ta_results["ta_forecast_icu_staffing_demand"]
-
     _CAPACITY_WORDS = ("space", "capacity", "available", "fit", "accommodate",
                        "how many", "room for", "beds available", "can icu")
     _TRANSFER_WORDS = ("step down", "step-down", "transfer", "move",
@@ -199,7 +144,7 @@ async def run_icu_body(sid: str, ctx: dict) -> dict:
     available_beds = census.get("available_beds", [])
 
     if not icu_admissions and not non_icu_admissions:
-        return {"status": "completed", "message": "No active admissions found", "icu_full": False, **_icu_fc}
+        return {"status": "completed", "message": "No active admissions found", "icu_full": False}
 
     # Capacity-only short-circuit -- but NOT when the plan also selected ICU ranking
     # (sa_icu_transfer). A goal like "check ICU beds available AND rank this admission"
@@ -213,7 +158,7 @@ async def run_icu_body(sid: str, ctx: dict) -> dict:
         return {
             "status": "completed", "mode": "capacity_check",
             "icu_occupied": len(icu_admissions), "icu_available": n,
-            "icu_full": n == 0, "message": msg, **_icu_fc,
+            "icu_full": n == 0, "message": msg,
         }
 
     if ta_results.get("ta_get_icu_census") is not None:
@@ -306,7 +251,7 @@ async def run_icu_body(sid: str, ctx: dict) -> dict:
             "status": "completed", "message": "No transfers recommended",
             "critical_vitals_flagged": len(critical_vital_ids), "summary": analysis.get("summary", ""),
             "icu_occupied": len(icu_admissions), "icu_available": len(available_beds),
-            "icu_full": len(available_beds) == 0, **_icu_fc,
+            "icu_full": len(available_beds) == 0,
         }
 
     if await should_run_task("ta_create_icu_approval", "sa_icu_stepdown", ta_results, task_plan, sid):
@@ -320,7 +265,7 @@ async def run_icu_body(sid: str, ctx: dict) -> dict:
             "status": "completed", "message": "No transfers recommended",
             "icu_occupied": len(icu_admissions), "icu_available": len(available_beds),
             "icu_full": len(available_beds) == 0,
-            "step_down_candidates": step_down, "escalation_candidates": escalations_enriched, **_icu_fc,
+            "step_down_candidates": step_down, "escalation_candidates": escalations_enriched,
         }
 
     await hitl.save_pending(sid, base, {
@@ -351,29 +296,20 @@ async def run_icu_body(sid: str, ctx: dict) -> dict:
 
 def _staff_upstream_signal(ctx: dict) -> dict:
     """G10: read upstream agent results already placed in ctx by build_ctx so the
-    staffing assessment can factor *expected* / *actual* patient load (Q2: "re-balance
-    staff based on the expected actual patient load"). Mirrors the bed.py cohort-reading
-    pattern (ctx.get(upstream_agent_id, {})). Never raises -- absent upstream = neutral.
+    staffing assessment can factor *actual* patient load (Q2: "re-balance staff based
+    on the expected actual patient load"). Mirrors the bed.py cohort-reading pattern
+    (ctx.get(upstream_agent_id, {})). Never raises -- absent upstream = neutral.
 
-    Returns {expected_noshows, er_critical, overflow_risk, surge, sources} where `surge`
-    is a coarse "demand is elevated" flag used to keep workload_ok conservative.
+    Returns {er_critical, surge, sources} where `surge` is a coarse "demand is
+    elevated" flag used to keep workload_ok conservative.
     """
-    appt_ta = ((ctx.get("appointment_agent") or {}).get("ta_results") or {})
-    noshow = appt_ta.get("ta_appt_predict_noshow") or {}
-    expected_noshows = int(noshow.get("high_risk_count") or 0)
-
-    bed_pred = ctx.get("bed_prediction_agent") or {}
-    overflow_risk = bool(bed_pred.get("overflow_risk"))
-
     er = ctx.get("er_agent") or {}
     er_critical = int(er.get("critical") or 0) or len(er.get("critical_patients") or [])
 
-    sources = [k for k in ("appointment_agent", "bed_prediction_agent", "er_agent") if ctx.get(k)]
+    sources = [k for k in ("er_agent",) if ctx.get(k)]
     return {
-        "expected_noshows": expected_noshows,
         "er_critical": er_critical,
-        "overflow_risk": overflow_risk,
-        "surge": overflow_risk or er_critical > 0,
+        "surge": er_critical > 0,
         "sources": sources,
     }
 
@@ -435,8 +371,8 @@ async def run_staff_body(sid: str, ctx: dict) -> dict:
     task_plan: dict = ctx.get("_task_plan", {})
     ta_results: dict = {}
 
-    # G10: factor expected/actual patient load from upstream agents (no-show
-    # prediction, bed-prediction surge, ER criticals) into the assessment + gate.
+    # G10: factor actual patient load from upstream agents (ER criticals) into
+    # the assessment + gate.
     signal = _staff_upstream_signal(ctx)
     if signal["sources"]:
         logger.info("staff upstream load  session=%s  %s", sid, signal)
@@ -464,50 +400,6 @@ async def run_staff_body(sid: str, ctx: dict) -> dict:
         ta_results["ta_check_documentation_gaps"] = await get_documentation_gaps(sid)
     doc_gaps = ta_results.get("ta_check_documentation_gaps", {})
 
-    # Forward-looking nurse-demand forecast; independent of the ward-workload path,
-    # so it is folded into `extras` (spread into every return below).
-    _nurse_fc = None
-    if subagent_in_plan("sa_nurse_demand", task_plan) and await should_run_task(
-            "ta_forecast_nurse_demand", "sa_nurse_demand", ta_results, task_plan):
-        ta_results["ta_forecast_nurse_demand"] = await forecast_nurse_demand(sid, ctx.get("_goal", ""))
-        _nurse_fc = ta_results["ta_forecast_nurse_demand"]
-
-    _doctor_fc = None
-    if subagent_in_plan("sa_doctor_demand", task_plan) and await should_run_task(
-            "ta_forecast_doctor_demand", "sa_doctor_demand", ta_results, task_plan):
-        ta_results["ta_forecast_doctor_demand"] = await forecast_doctor_demand(sid, ctx.get("_goal", ""))
-        _doctor_fc = ta_results["ta_forecast_doctor_demand"]
-
-    _shift_cov_fc = None
-    if subagent_in_plan("sa_shift_coverage", task_plan) and await should_run_task(
-            "ta_forecast_shift_coverage", "sa_shift_coverage", ta_results, task_plan):
-        ta_results["ta_forecast_shift_coverage"] = await forecast_shift_coverage(sid, ctx.get("_goal", ""))
-        _shift_cov_fc = ta_results["ta_forecast_shift_coverage"]
-
-    _overtime_fc = None
-    if subagent_in_plan("sa_overtime_forecast", task_plan) and await should_run_task(
-            "ta_forecast_overtime", "sa_overtime_forecast", ta_results, task_plan):
-        ta_results["ta_forecast_overtime"] = await forecast_overtime(sid, ctx.get("_goal", ""))
-        _overtime_fc = ta_results["ta_forecast_overtime"]
-
-    _absenteeism_fc = None
-    if subagent_in_plan("sa_absenteeism_forecast", task_plan) and await should_run_task(
-            "ta_forecast_absenteeism", "sa_absenteeism_forecast", ta_results, task_plan):
-        ta_results["ta_forecast_absenteeism"] = await forecast_absenteeism(sid, ctx.get("_goal", ""))
-        _absenteeism_fc = ta_results["ta_forecast_absenteeism"]
-
-    _workforce_fc = None
-    if subagent_in_plan("sa_workforce_utilization", task_plan) and await should_run_task(
-            "ta_forecast_workforce_utilization", "sa_workforce_utilization", ta_results, task_plan):
-        ta_results["ta_forecast_workforce_utilization"] = await forecast_workforce_utilization(sid, ctx.get("_goal", ""))
-        _workforce_fc = ta_results["ta_forecast_workforce_utilization"]
-
-    _skill_mix_fc = None
-    if subagent_in_plan("sa_skill_mix", task_plan) and await should_run_task(
-            "ta_forecast_skill_mix", "sa_skill_mix", ta_results, task_plan):
-        ta_results["ta_forecast_skill_mix"] = await forecast_skill_mix(sid, ctx.get("_goal", ""))
-        _skill_mix_fc = ta_results["ta_forecast_skill_mix"]
-
     # Common extras attached to every staff result (cross-agent + UI consumers).
     extras = {
         "upstream_load": signal,
@@ -516,13 +408,6 @@ async def run_staff_body(sid: str, ctx: dict) -> dict:
         "area_staffing": area_staffing,
         "understaffed_areas": area_staffing.get("understaffed_areas", []),
         "documentation_gaps": doc_gaps,
-        **({"nurse_demand_forecast": _nurse_fc} if _nurse_fc else {}),
-        **({"doctor_demand_forecast": _doctor_fc} if _doctor_fc else {}),
-        **({"shift_coverage_forecast": _shift_cov_fc} if _shift_cov_fc else {}),
-        **({"overtime_forecast": _overtime_fc} if _overtime_fc else {}),
-        **({"absenteeism_forecast": _absenteeism_fc} if _absenteeism_fc else {}),
-        **({"workforce_utilization_forecast": _workforce_fc} if _workforce_fc else {}),
-        **({"skill_mix_forecast": _skill_mix_fc} if _skill_mix_fc else {}),
     }
 
     workload_entry = ta_results.get("ta_get_ward_workload", {})

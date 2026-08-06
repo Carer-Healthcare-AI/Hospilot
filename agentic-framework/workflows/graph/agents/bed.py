@@ -34,10 +34,9 @@ from agents.bed.agent_activities import (
     hold_bed_temporarily, dispatch_housekeeping_fast_track, create_emergency_cleaning_task,
     escalate_to_floor_supervisor, validate_sanitization, mark_bed_ready, check_room_readiness,
     validate_oxygen_readiness, check_monitor_readiness, sync_ready_status,
-    predict_icu_saturation, generate_capacity_alert, predict_discharge_probability,
-    predict_discharge_horizon, trigger_discharge_coordination, escalate_to_command_center,
+    trigger_discharge_coordination, escalate_to_command_center,
     escalate_allocation_conflict,
-    QueryBedsInput, FilterBedsInput, HoldBedInput, PredictSaturationInput, NotifyInput,
+    QueryBedsInput, FilterBedsInput, HoldBedInput, NotifyInput,
     EmergencyCleaningInput, SyncBedStatusInput, BedReadinessInput,
 )
 
@@ -425,21 +424,9 @@ async def run_bed_body(sid: str, ctx: dict) -> dict:
 
     if not candidates:
         if task_plan is not None:
-            await plan_subagent("bed_agent", "sa_bed_prediction", _BED_TASKS, task_plan, ta_results, goal, sid)
             await plan_subagent("bed_agent", "sa_discharge_coordination", {}, task_plan, ta_results, goal, sid)
             await plan_subagent("bed_agent", "sa_escalation", _BED_TASKS, task_plan, ta_results, goal, sid)
         if task_plan:
-            if subagent_in_plan("sa_bed_prediction", task_plan):
-                if await should_run_task("ta_predict_icu_saturation", "sa_bed_prediction", ta_results, task_plan, sid):
-                    ta_results["ta_predict_icu_saturation"] = await predict_icu_saturation(
-                        PredictSaturationInput(session_id=sid))
-                if await should_run_task("ta_generate_capacity_alert", "sa_bed_prediction", ta_results, task_plan, sid):
-                    await generate_capacity_alert(NotifyInput(session_id=sid, message="No available beds -- capacity alert triggered."))
-                    ta_results["ta_generate_capacity_alert"] = {"alert_sent": True}
-                if await should_run_task("ta_predict_discharge_probability", "sa_bed_prediction", ta_results, task_plan, sid):
-                    ta_results["ta_predict_discharge_probability"] = await predict_discharge_probability(sid)
-                if await should_run_task("ta_predict_discharge_horizon", "sa_bed_prediction", ta_results, task_plan, sid):
-                    ta_results["ta_predict_discharge_horizon"] = await predict_discharge_horizon(sid)
             if subagent_in_plan("sa_discharge_coordination", task_plan):
                 if await should_run_task("ta_trigger_discharge_coordination", "sa_discharge_coordination", ta_results, task_plan, sid):
                     ta_results["ta_trigger_discharge_coordination"] = await trigger_discharge_coordination(sid)

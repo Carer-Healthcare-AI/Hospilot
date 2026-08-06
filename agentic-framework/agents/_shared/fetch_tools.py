@@ -65,12 +65,6 @@ AGENT_FETCH_TOOLS: dict[str, dict] = {
         "fetch_recently_discharged_beds": lambda: hasura.get_recently_discharged_beds(),
     },
 
-    "bed_prediction_agent": {
-        "fetch_beds_summary":     lambda: hasura.get_beds_summary(),
-        "fetch_discharge_horizon": lambda: hasura.get_discharge_horizon(hours=6),
-        "fetch_er_pressure":      lambda: hasura.get_er_pressure(),
-    },
-
     "appointment_agent": {
         "fetch_appointments":    lambda: hasura.appt_list_appointments(),
         "fetch_available_slots": lambda: hasura.appt_available_slots(),

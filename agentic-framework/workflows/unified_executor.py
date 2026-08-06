@@ -33,7 +33,6 @@ _cache: dict[str, str] = {}
 _TASK_SUBAGENT: dict[str, str] = {
     "exec__assign_ambulance":                "sa_ambulance_dispatch",
     "exec__assess_discharge":                "sa_discharge_ready",
-    "exec__forecast_capacity":               "sa_bed_pred_forecast",
     "exec__analyze_staffing":                "sa_ratio_monitor",
     "exec__rank_beds":                       "sa_bed_ranking",
     "exec__rank_icu_admissions":             "sa_icu_census",

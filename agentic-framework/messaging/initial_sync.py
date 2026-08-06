@@ -16,7 +16,7 @@ import logging
 from cache import redis as cache
 from db.fabric import fget
 
-logger = logging.getLogger("poller.carerOS_poller")
+logger = logging.getLogger("initial_sync")
 
 # ---------------------------------------------------------------------------
 # Generic paginating fetcher for the /sync/{table} API

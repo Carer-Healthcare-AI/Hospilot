@@ -161,17 +161,6 @@ AGENT_SCHEMAS: dict[str, dict[str, list[str]]] = {
         ],
     },
 
-    "bed_prediction_agent": {
-        "hospilot_beds": [
-            "id", "ward", "bed_number", "room_type", "status", "is_active",
-            "ventilation", "features",
-        ],
-        "hospilot_ipd_admissions": [
-            "id", "patient_token", "bed_id", "admitted_at",
-            "expected_discharge_at", "status", "discharge_ready",
-        ],
-    },
-
     "revenue_agent": {
         "hospilot_invoices": [
             "id",              # uuid

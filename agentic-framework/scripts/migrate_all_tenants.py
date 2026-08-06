@@ -10,7 +10,7 @@ this script: it runs the file against the Hasura source of every organization
 -- including 'default' (the Carer org, whose tenant tables live in the
 control-plane DB) -- then reloads metadata once.
 
-Also update db/init/tenant_template.sql in the same commit so newly provisioned
+Also update schemas/sql/tenant_template.sql in the same commit so newly provisioned
 tenants are created with the change already in place.
 """
 import argparse
