@@ -108,7 +108,7 @@ async def lifespan(app: FastAPI):
     # (broadcast() publishes to Kafka; the worker also publishes; this consumer is
     # what delivers worker-produced events to the browser.) No-op when disabled.
     if settings.kafka_enabled:
-        from messaging.consumer import start_ws_relay
+        from messaging.flow_event_relay import start_ws_relay
         from messaging.data_consumer import start_data_consumer
         from messaging.ack_consumer import start_ack_consumer
         await start_ws_relay()
@@ -141,7 +141,7 @@ async def lifespan(app: FastAPI):
     logger.info("Hospilot shutting down...")
     reaper_task.cancel()
     if settings.kafka_enabled:
-        from messaging.consumer import stop_ws_relay
+        from messaging.flow_event_relay import stop_ws_relay
         from messaging.data_consumer import stop_data_consumer
         from messaging.ack_consumer import stop_ack_consumer
         from messaging.producer import close_producer

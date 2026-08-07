@@ -17,7 +17,7 @@ async def deliver_local(session_id: str, event: dict) -> None:
     """Fan an event out to THIS process's WebSocket clients for the session.
 
     Called directly when the Kafka bus is disabled, and by the Kafka relay
-    consumer (messaging.consumer) when it is enabled.
+    (messaging.flow_event_relay) when it is enabled.
     """
     dead = set()
     for ws in _connections.get(session_id, set()):

@@ -1,8 +1,8 @@
 """API-side relay consumer for the event bus.
 
 Reads `hospilot.sessions.events` and delivers each event to THIS process's
-WebSocket connections (via api.ws.deliver_local). This is what lets events
-produced on a separate Temporal worker reach the browser.
+WebSocket connections (via api.ws.deliver_local). This is what lets flow events
+produced by the LangGraph runtime reach the browser.
 
 Multi-replica correctness: each API replica uses a UNIQUE consumer-group id, so
 every replica receives every event (broadcast fan-out) and relays only the
