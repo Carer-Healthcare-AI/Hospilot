@@ -24,6 +24,106 @@ from agents.revenue.activities import (
     payer_rule_compliance_rev, detect_missing_docs_rev, escalation_recommendations_rev,
     RevAnalysisInput,
 )
+from agents.lab.sample_prioritization import (
+    check_stat_status, apply_icu_er_priority, check_analyzer_available, escalate_tat_risk,
+)
+from agents.lab.sample_tracking import (
+    check_sample_collection, check_sample_transport, verify_sample_receipt, trigger_sample_search,
+)
+from agents.lab.tat import (
+    check_tat_threshold, analyze_tat_bottleneck, prioritize_stat_queue, escalate_tat_supervisor,
+)
+from agents.lab.analyzer_utilization import (
+    check_analyzer_utilization, identify_alternate_analyzer,
+    rebalance_analyzer_workload, trigger_maintenance_alert,
+)
+from agents.lab.analyzer_routing import (
+    check_analyzer_overload, validate_alternate_analyzer,
+    execute_sample_routing, restore_routing_capacity,
+)
+from agents.lab.quality_control import (
+    check_qc_status, trigger_recalibration, repeat_qc_check, compliance_alert,
+)
+from agents.lab.test_validation import (
+    validate_result_rules, check_delta_flag, check_critical_value_flag, release_validated_report,
+)
+from agents.lab.critical_result import (
+    detect_critical_results, notify_physician_critical,
+    escalate_icu_er_critical, log_critical_action,
+)
+from agents.lab.test_recommendation import (
+    detect_abnormal_result, evaluate_reflex_rules,
+    recommend_additional_test, create_reflex_order,
+)
+from agents.pharmacy.prioritization import (
+    check_stat_medication_orders, apply_critical_patient_priority,
+    check_stat_availability, escalate_stat_shortage,
+)
+from agents.pharmacy.fulfillment import (
+    check_prescription_received, check_medication_availability,
+    track_dispensing_progress, close_fulfilled_orders,
+)
+from agents.pharmacy.drug_availability import (
+    check_stock_levels, search_alternate_location,
+    reserve_inventory, escalate_critical_shortage,
+)
+from agents.pharmacy.prescription_validation import (
+    validate_prescription_completeness, validate_dosage_range,
+    detect_duplicate_medications, approve_or_hold_prescription,
+)
+from agents.pharmacy.clinical_interaction import (
+    check_polypharmacy, run_interaction_check,
+    check_allergy_conflict, approve_safe_dispense,
+)
+from agents.pharmacy.dispensing_validation import (
+    verify_patient_identity, match_medication_prescription,
+    validate_dispensing_dosage, release_or_hold_dispensing,
+)
+from agents.pharmacy.substitution import (
+    check_unavailable_medications, search_formulary_alternatives,
+    request_physician_approval, update_substitution_order,
+)
+from agents.pharmacy.queue import (
+    check_queue_length, analyze_queue_bottleneck,
+    prioritize_stat_medications, escalate_tat_breach,
+)
+from agents.pharmacy.controlled_drug import (
+    identify_controlled_orders, verify_controlled_authorization,
+    check_inventory_variance, escalate_compliance_issue,
+)
+from agents.pharmacy.activities import (
+    get_discharge_ready_patients, check_medication_reconciliation,
+    save_pharmacy_report, PharmacyCheckInput,
+)
+from agents.housekeeping.activities import (
+    get_vacated_beds, dispatch_housekeeping, HousekeepingDispatchInput,
+)
+from agents.ot.activities import (
+    get_ot_census,
+    check_ot_room_cleaning, OtRoomInput,
+    check_ot_instrument_readiness, OtInstrumentInput,
+    track_ot_turnaround,
+    score_ot_efficiency, OtEfficiencyInput,
+    predict_ot_delays, OtDelayInput,
+    coordinate_ot_staff, OtStaffInput,
+    detect_ot_conflicts, OtScheduleInput,
+    find_ot_emergencies, check_ot_resource_availability,
+    handle_ot_emergencies, OtEmergencyInput,
+    optimise_ot_slots, OtSlotInput,
+    balance_ot_load, OtLoadInput,
+    analyze_ot_capacity, OtCapacityInput,
+    find_ot_theatre_slots, OtSlotSearchInput,
+    reschedule_ot_surgery, OtRescheduleInput,
+    defer_ot_electives, OtDeferInput,
+)
+from agents.billing.activities import (
+    detect_claim_discrepancies, validate_insurance_eligibility,
+    check_billing_compliance, track_pending_payments, detect_revenue_leakage,
+    generate_billing_recommendations, prioritize_payments, trigger_payment_reminder,
+    notify_followup_team, BillingOptimizationInput,
+    get_patient_billing, create_billing_request,
+    PatientBillingInput, InitiateBillingInput,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +139,9 @@ for _n, _f in list(globals().items()):
 
 _ER_TASKS      = {sa.id: [t.schema() for t in sa.tasks] for sa in SUB_AGENTS.get("er_agent", [])}
 _REVENUE_TASKS = {sa.id: [t.schema() for t in sa.tasks] for sa in SUB_AGENTS.get("revenue_agent", [])}
+_BILLING_TASKS = {sa.id: [t.schema() for t in sa.tasks] for sa in SUB_AGENTS.get("billing_agent", [])}
+_LAB_TASKS     = {sa.id: [t.schema() for t in sa.tasks] for sa in SUB_AGENTS.get("lab_agent", [])}
+_PHARM_TASKS   = {sa.id: [t.schema() for t in sa.tasks] for sa in SUB_AGENTS.get("pharmacy_agent", [])}
 
 
 # -- ER ----------------------------------------------------------------------
@@ -393,4 +496,562 @@ async def run_revenue_body(sid: str, ctx: dict) -> dict:
         **(_dynamic and {"dynamic_tasks": _dynamic} or {}),
     }
 
+
+# -- Pharmacy ------------------------------------------------------------------
+
+async def run_pharmacy_body(sid: str, ctx: dict) -> dict:
+    goal = ctx.get("_goal", "")
+    ta_results: dict = {}
+    _raw_plan = ctx.get("_task_plan")
+    task_plan: dict | None = dict(_raw_plan) if _raw_plan is not None else None
+    if task_plan is not None and goal:
+        seed_planned_slots(task_plan, _PHARM_TASKS)
+
+    # sa_medication_prioritization
+    if task_plan is not None:
+        await plan_subagent("pharmacy_agent", "sa_medication_prioritization", _PHARM_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_medication_prioritization", task_plan):
+        if await should_run_task("ta_check_stat_medication_orders", "sa_medication_prioritization", ta_results, task_plan, sid):
+            ta_results["ta_check_stat_medication_orders"] = await check_stat_medication_orders(sid)
+        if await should_run_task("ta_apply_critical_patient_priority", "sa_medication_prioritization", ta_results, task_plan, sid):
+            ta_results["ta_apply_critical_patient_priority"] = await apply_critical_patient_priority(sid)
+        if await should_run_task("ta_check_stat_availability", "sa_medication_prioritization", ta_results, task_plan, sid):
+            ta_results["ta_check_stat_availability"] = await check_stat_availability(sid)
+        if await should_run_task("ta_escalate_stat_shortage", "sa_medication_prioritization", ta_results, task_plan, sid):
+            ta_results["ta_escalate_stat_shortage"] = await escalate_stat_shortage(sid)
+
+    # sa_medication_fulfillment
+    if task_plan is not None:
+        await plan_subagent("pharmacy_agent", "sa_medication_fulfillment", _PHARM_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_medication_fulfillment", task_plan):
+        if await should_run_task("ta_check_prescription_received", "sa_medication_fulfillment", ta_results, task_plan, sid):
+            ta_results["ta_check_prescription_received"] = await check_prescription_received(sid)
+        if await should_run_task("ta_check_medication_availability", "sa_medication_fulfillment", ta_results, task_plan, sid):
+            ta_results["ta_check_medication_availability"] = await check_medication_availability(sid)
+        if await should_run_task("ta_track_dispensing_progress", "sa_medication_fulfillment", ta_results, task_plan, sid):
+            ta_results["ta_track_dispensing_progress"] = await track_dispensing_progress(sid)
+        if await should_run_task("ta_close_fulfilled_orders", "sa_medication_fulfillment", ta_results, task_plan, sid):
+            ta_results["ta_close_fulfilled_orders"] = await close_fulfilled_orders(sid)
+
+    # sa_drug_availability
+    if task_plan is not None:
+        await plan_subagent("pharmacy_agent", "sa_drug_availability", _PHARM_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_drug_availability", task_plan):
+        if await should_run_task("ta_check_stock_levels", "sa_drug_availability", ta_results, task_plan, sid):
+            ta_results["ta_check_stock_levels"] = await check_stock_levels(sid)
+        if await should_run_task("ta_search_alternate_location", "sa_drug_availability", ta_results, task_plan, sid):
+            ta_results["ta_search_alternate_location"] = await search_alternate_location(sid)
+        if await should_run_task("ta_reserve_inventory", "sa_drug_availability", ta_results, task_plan, sid):
+            ta_results["ta_reserve_inventory"] = await reserve_inventory(sid)
+        if await should_run_task("ta_escalate_critical_shortage", "sa_drug_availability", ta_results, task_plan, sid):
+            ta_results["ta_escalate_critical_shortage"] = await escalate_critical_shortage(sid)
+
+    # sa_prescription_validation
+    if task_plan is not None:
+        await plan_subagent("pharmacy_agent", "sa_prescription_validation", _PHARM_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_prescription_validation", task_plan):
+        if await should_run_task("ta_validate_prescription_completeness", "sa_prescription_validation", ta_results, task_plan, sid):
+            ta_results["ta_validate_prescription_completeness"] = await validate_prescription_completeness(sid)
+        if await should_run_task("ta_validate_dosage_range", "sa_prescription_validation", ta_results, task_plan, sid):
+            ta_results["ta_validate_dosage_range"] = await validate_dosage_range(sid)
+        if await should_run_task("ta_detect_duplicate_medications", "sa_prescription_validation", ta_results, task_plan, sid):
+            ta_results["ta_detect_duplicate_medications"] = await detect_duplicate_medications(sid)
+        if await should_run_task("ta_approve_or_hold_prescription", "sa_prescription_validation", ta_results, task_plan, sid):
+            ta_results["ta_approve_or_hold_prescription"] = await approve_or_hold_prescription(sid)
+
+    # sa_clinical_interaction
+    if task_plan is not None:
+        await plan_subagent("pharmacy_agent", "sa_clinical_interaction", _PHARM_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_clinical_interaction", task_plan):
+        if await should_run_task("ta_check_polypharmacy", "sa_clinical_interaction", ta_results, task_plan, sid):
+            ta_results["ta_check_polypharmacy"] = await check_polypharmacy(sid)
+        if await should_run_task("ta_run_interaction_check", "sa_clinical_interaction", ta_results, task_plan, sid):
+            ta_results["ta_run_interaction_check"] = await run_interaction_check(sid)
+        if await should_run_task("ta_check_allergy_conflict", "sa_clinical_interaction", ta_results, task_plan, sid):
+            ta_results["ta_check_allergy_conflict"] = await check_allergy_conflict(sid)
+        if await should_run_task("ta_approve_safe_dispense", "sa_clinical_interaction", ta_results, task_plan, sid):
+            ta_results["ta_approve_safe_dispense"] = await approve_safe_dispense(sid)
+
+    # sa_dispensing_validation
+    if task_plan is not None:
+        await plan_subagent("pharmacy_agent", "sa_dispensing_validation", _PHARM_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_dispensing_validation", task_plan):
+        if await should_run_task("ta_verify_patient_identity", "sa_dispensing_validation", ta_results, task_plan, sid):
+            ta_results["ta_verify_patient_identity"] = await verify_patient_identity(sid)
+        if await should_run_task("ta_match_medication_prescription", "sa_dispensing_validation", ta_results, task_plan, sid):
+            ta_results["ta_match_medication_prescription"] = await match_medication_prescription(sid)
+        if await should_run_task("ta_validate_dispensing_dosage", "sa_dispensing_validation", ta_results, task_plan, sid):
+            ta_results["ta_validate_dispensing_dosage"] = await validate_dispensing_dosage(sid)
+        if await should_run_task("ta_release_or_hold_dispensing", "sa_dispensing_validation", ta_results, task_plan, sid):
+            ta_results["ta_release_or_hold_dispensing"] = await release_or_hold_dispensing(sid)
+
+    # sa_medication_substitution
+    if task_plan is not None:
+        await plan_subagent("pharmacy_agent", "sa_medication_substitution", _PHARM_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_medication_substitution", task_plan):
+        if await should_run_task("ta_check_unavailable_medications", "sa_medication_substitution", ta_results, task_plan, sid):
+            ta_results["ta_check_unavailable_medications"] = await check_unavailable_medications(sid)
+        if await should_run_task("ta_search_formulary_alternatives", "sa_medication_substitution", ta_results, task_plan, sid):
+            ta_results["ta_search_formulary_alternatives"] = await search_formulary_alternatives(sid)
+        if await should_run_task("ta_request_physician_approval", "sa_medication_substitution", ta_results, task_plan, sid):
+            ta_results["ta_request_physician_approval"] = await request_physician_approval(sid)
+        if await should_run_task("ta_update_substitution_order", "sa_medication_substitution", ta_results, task_plan, sid):
+            ta_results["ta_update_substitution_order"] = await update_substitution_order(sid)
+
+    # sa_pharmacy_queue
+    if task_plan is not None:
+        await plan_subagent("pharmacy_agent", "sa_pharmacy_queue", _PHARM_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_pharmacy_queue", task_plan):
+        if await should_run_task("ta_check_queue_length", "sa_pharmacy_queue", ta_results, task_plan, sid):
+            ta_results["ta_check_queue_length"] = await check_queue_length(sid)
+        if await should_run_task("ta_analyze_queue_bottleneck", "sa_pharmacy_queue", ta_results, task_plan, sid):
+            ta_results["ta_analyze_queue_bottleneck"] = await analyze_queue_bottleneck(sid)
+        if await should_run_task("ta_prioritize_stat_medications", "sa_pharmacy_queue", ta_results, task_plan, sid):
+            ta_results["ta_prioritize_stat_medications"] = await prioritize_stat_medications(sid)
+        if await should_run_task("ta_escalate_tat_breach", "sa_pharmacy_queue", ta_results, task_plan, sid):
+            ta_results["ta_escalate_tat_breach"] = await escalate_tat_breach(sid)
+
+    # sa_controlled_drug_compliance
+    if task_plan is not None:
+        await plan_subagent("pharmacy_agent", "sa_controlled_drug_compliance", _PHARM_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_controlled_drug_compliance", task_plan):
+        if await should_run_task("ta_identify_controlled_orders", "sa_controlled_drug_compliance", ta_results, task_plan, sid):
+            ta_results["ta_identify_controlled_orders"] = await identify_controlled_orders(sid)
+        if await should_run_task("ta_verify_controlled_authorization", "sa_controlled_drug_compliance", ta_results, task_plan, sid):
+            ta_results["ta_verify_controlled_authorization"] = await verify_controlled_authorization(sid)
+        if await should_run_task("ta_check_inventory_variance", "sa_controlled_drug_compliance", ta_results, task_plan, sid):
+            ta_results["ta_check_inventory_variance"] = await check_inventory_variance(sid)
+        if await should_run_task("ta_escalate_compliance_issue", "sa_controlled_drug_compliance", ta_results, task_plan, sid):
+            ta_results["ta_escalate_compliance_issue"] = await escalate_compliance_issue(sid)
+
+    # sa_stock_monitor
+    if task_plan is not None:
+        await plan_subagent("pharmacy_agent", "sa_stock_monitor", _PHARM_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_stock_monitor", task_plan):
+        if await should_run_task("ta_get_discharge_patients", "sa_stock_monitor", ta_results, task_plan, sid):
+            admissions = await get_discharge_ready_patients(sid)
+            ta_results["ta_get_discharge_patients"] = {"patients": admissions}
+        else:
+            admissions = (ta_results.get("ta_get_discharge_patients") or {}).get("patients", [])
+        if await should_run_task("ta_check_medication_reconciliation", "sa_stock_monitor", ta_results, task_plan, sid):
+            ta_results["ta_check_medication_reconciliation"] = await check_medication_reconciliation(
+                PharmacyCheckInput(session_id=sid, admissions=admissions)
+            )
+        if await should_run_task("ta_save_pharmacy_report", "sa_stock_monitor", ta_results, task_plan, sid):
+            ta_results["ta_save_pharmacy_report"] = await save_pharmacy_report(
+                PharmacyCheckInput(session_id=sid, admissions=admissions)
+            )
+
+    _dynamic = await run_dynamic_tasks("pharmacy_agent", task_plan, ta_results, sid)
+    return {
+        "status": "completed",
+        "agent_id": "pharmacy_agent",
+        "prioritization": {
+            "stat_count": (ta_results.get("ta_check_stat_medication_orders") or {}).get("stat_count", 0),
+            "critical_patients_prioritized": (ta_results.get("ta_apply_critical_patient_priority") or {}).get("prioritized_count", 0),
+            "stat_unavailable": (ta_results.get("ta_check_stat_availability") or {}).get("stat_unavailable_count", 0),
+        },
+        "fulfillment": {
+            "in_progress": (ta_results.get("ta_track_dispensing_progress") or {}).get("in_progress_count", 0),
+            "completed": (ta_results.get("ta_track_dispensing_progress") or {}).get("completed_count", 0),
+            "closed": (ta_results.get("ta_close_fulfilled_orders") or {}).get("closed_count", 0),
+        },
+        "stock": {
+            "low_stock": (ta_results.get("ta_check_stock_levels") or {}).get("low_stock_count", 0),
+            "critical_shortage": (ta_results.get("ta_check_stock_levels") or {}).get("critical_shortage_count", 0),
+        },
+        "clinical_safety": {
+            "interaction_count": (ta_results.get("ta_run_interaction_check") or {}).get("interaction_count", 0),
+            "allergy_conflicts": (ta_results.get("ta_check_allergy_conflict") or {}).get("conflict_count", 0),
+            "polypharmacy_risks": (ta_results.get("ta_check_polypharmacy") or {}).get("polypharmacy_risk_count", 0),
+        },
+        "compliance": {
+            "controlled_orders": (ta_results.get("ta_identify_controlled_orders") or {}).get("controlled_count", 0),
+            "inventory_variance": (ta_results.get("ta_check_inventory_variance") or {}).get("variance_count", 0),
+        },
+        **(_dynamic and {"dynamic_tasks": _dynamic} or {}),
+    }
+
+
+# -- Lab -----------------------------------------------------------------------
+
+async def run_lab_body(sid: str, ctx: dict) -> dict:
+    goal = ctx.get("_goal", "")
+    ta_results: dict = {}
+    _raw_plan = ctx.get("_task_plan")
+    task_plan: dict | None = dict(_raw_plan) if _raw_plan is not None else None
+    if task_plan is not None and goal:
+        seed_planned_slots(task_plan, _LAB_TASKS)
+
+    # sa_sample_prioritization
+    if task_plan is not None:
+        await plan_subagent("lab_agent", "sa_sample_prioritization", _LAB_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_sample_prioritization", task_plan):
+        if await should_run_task("ta_check_stat_status", "sa_sample_prioritization", ta_results, task_plan, sid):
+            ta_results["ta_check_stat_status"] = await check_stat_status(sid)
+        if await should_run_task("ta_apply_icu_er_priority", "sa_sample_prioritization", ta_results, task_plan, sid):
+            ta_results["ta_apply_icu_er_priority"] = await apply_icu_er_priority(sid)
+        if await should_run_task("ta_check_analyzer_available", "sa_sample_prioritization", ta_results, task_plan, sid):
+            ta_results["ta_check_analyzer_available"] = await check_analyzer_available(sid)
+        if await should_run_task("ta_escalate_tat_risk", "sa_sample_prioritization", ta_results, task_plan, sid):
+            ta_results["ta_escalate_tat_risk"] = await escalate_tat_risk(sid)
+
+    # sa_sample_tracking
+    if task_plan is not None:
+        await plan_subagent("lab_agent", "sa_sample_tracking", _LAB_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_sample_tracking", task_plan):
+        if await should_run_task("ta_check_sample_collection", "sa_sample_tracking", ta_results, task_plan, sid):
+            ta_results["ta_check_sample_collection"] = await check_sample_collection(sid)
+        if await should_run_task("ta_check_sample_transport", "sa_sample_tracking", ta_results, task_plan, sid):
+            ta_results["ta_check_sample_transport"] = await check_sample_transport(sid)
+        if await should_run_task("ta_verify_sample_receipt", "sa_sample_tracking", ta_results, task_plan, sid):
+            ta_results["ta_verify_sample_receipt"] = await verify_sample_receipt(sid)
+        if await should_run_task("ta_trigger_sample_search", "sa_sample_tracking", ta_results, task_plan, sid):
+            ta_results["ta_trigger_sample_search"] = await trigger_sample_search(sid)
+
+    # sa_tat_optimization
+    if task_plan is not None:
+        await plan_subagent("lab_agent", "sa_tat_optimization", _LAB_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_tat_optimization", task_plan):
+        if await should_run_task("ta_check_tat_threshold", "sa_tat_optimization", ta_results, task_plan, sid):
+            ta_results["ta_check_tat_threshold"] = await check_tat_threshold(sid)
+        if await should_run_task("ta_analyze_tat_bottleneck", "sa_tat_optimization", ta_results, task_plan, sid):
+            ta_results["ta_analyze_tat_bottleneck"] = await analyze_tat_bottleneck(sid)
+        if await should_run_task("ta_prioritize_stat_queue", "sa_tat_optimization", ta_results, task_plan, sid):
+            ta_results["ta_prioritize_stat_queue"] = await prioritize_stat_queue(sid)
+        if await should_run_task("ta_escalate_tat_supervisor", "sa_tat_optimization", ta_results, task_plan, sid):
+            ta_results["ta_escalate_tat_supervisor"] = await escalate_tat_supervisor(sid)
+
+    # sa_analyzer_utilization
+    if task_plan is not None:
+        await plan_subagent("lab_agent", "sa_analyzer_utilization", _LAB_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_analyzer_utilization", task_plan):
+        if await should_run_task("ta_check_analyzer_utilization", "sa_analyzer_utilization", ta_results, task_plan, sid):
+            ta_results["ta_check_analyzer_utilization"] = await check_analyzer_utilization(sid)
+        if await should_run_task("ta_identify_alternate_analyzer", "sa_analyzer_utilization", ta_results, task_plan, sid):
+            ta_results["ta_identify_alternate_analyzer"] = await identify_alternate_analyzer(sid)
+        if await should_run_task("ta_rebalance_analyzer_workload", "sa_analyzer_utilization", ta_results, task_plan, sid):
+            ta_results["ta_rebalance_analyzer_workload"] = await rebalance_analyzer_workload(sid)
+        if await should_run_task("ta_trigger_maintenance_alert", "sa_analyzer_utilization", ta_results, task_plan, sid):
+            ta_results["ta_trigger_maintenance_alert"] = await trigger_maintenance_alert(sid)
+
+    # sa_analyzer_routing
+    if task_plan is not None:
+        await plan_subagent("lab_agent", "sa_analyzer_routing", _LAB_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_analyzer_routing", task_plan):
+        if await should_run_task("ta_check_analyzer_overload", "sa_analyzer_routing", ta_results, task_plan, sid):
+            ta_results["ta_check_analyzer_overload"] = await check_analyzer_overload(sid)
+        if await should_run_task("ta_validate_alternate_analyzer", "sa_analyzer_routing", ta_results, task_plan, sid):
+            ta_results["ta_validate_alternate_analyzer"] = await validate_alternate_analyzer(sid)
+        if await should_run_task("ta_execute_sample_routing", "sa_analyzer_routing", ta_results, task_plan, sid):
+            ta_results["ta_execute_sample_routing"] = await execute_sample_routing(sid)
+        if await should_run_task("ta_restore_routing_capacity", "sa_analyzer_routing", ta_results, task_plan, sid):
+            ta_results["ta_restore_routing_capacity"] = await restore_routing_capacity(sid)
+
+    # sa_quality_control
+    if task_plan is not None:
+        await plan_subagent("lab_agent", "sa_quality_control", _LAB_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_quality_control", task_plan):
+        if await should_run_task("ta_check_qc_status", "sa_quality_control", ta_results, task_plan, sid):
+            ta_results["ta_check_qc_status"] = await check_qc_status(sid)
+        if await should_run_task("ta_trigger_recalibration", "sa_quality_control", ta_results, task_plan, sid):
+            ta_results["ta_trigger_recalibration"] = await trigger_recalibration(sid)
+        if await should_run_task("ta_repeat_qc_check", "sa_quality_control", ta_results, task_plan, sid):
+            ta_results["ta_repeat_qc_check"] = await repeat_qc_check(sid)
+        if await should_run_task("ta_compliance_alert", "sa_quality_control", ta_results, task_plan, sid):
+            ta_results["ta_compliance_alert"] = await compliance_alert(sid)
+
+    # sa_test_validation
+    if task_plan is not None:
+        await plan_subagent("lab_agent", "sa_test_validation", _LAB_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_test_validation", task_plan):
+        if await should_run_task("ta_validate_result_rules", "sa_test_validation", ta_results, task_plan, sid):
+            ta_results["ta_validate_result_rules"] = await validate_result_rules(sid)
+        if await should_run_task("ta_check_delta_flag", "sa_test_validation", ta_results, task_plan, sid):
+            ta_results["ta_check_delta_flag"] = await check_delta_flag(sid)
+        if await should_run_task("ta_check_critical_value_flag", "sa_test_validation", ta_results, task_plan, sid):
+            ta_results["ta_check_critical_value_flag"] = await check_critical_value_flag(sid)
+        if await should_run_task("ta_release_validated_report", "sa_test_validation", ta_results, task_plan, sid):
+            ta_results["ta_release_validated_report"] = await release_validated_report(sid)
+
+    # sa_critical_result_escalation
+    if task_plan is not None:
+        await plan_subagent("lab_agent", "sa_critical_result_escalation", _LAB_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_critical_result_escalation", task_plan):
+        if await should_run_task("ta_detect_critical_results", "sa_critical_result_escalation", ta_results, task_plan, sid):
+            ta_results["ta_detect_critical_results"] = await detect_critical_results(sid)
+        if await should_run_task("ta_notify_physician_critical", "sa_critical_result_escalation", ta_results, task_plan, sid):
+            ta_results["ta_notify_physician_critical"] = await notify_physician_critical(sid)
+        if await should_run_task("ta_escalate_icu_er_critical", "sa_critical_result_escalation", ta_results, task_plan, sid):
+            ta_results["ta_escalate_icu_er_critical"] = await escalate_icu_er_critical(sid)
+        if await should_run_task("ta_log_critical_action", "sa_critical_result_escalation", ta_results, task_plan, sid):
+            ta_results["ta_log_critical_action"] = await log_critical_action(sid)
+
+    # sa_test_recommendation
+    if task_plan is not None:
+        await plan_subagent("lab_agent", "sa_test_recommendation", _LAB_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_test_recommendation", task_plan):
+        if await should_run_task("ta_detect_abnormal_result", "sa_test_recommendation", ta_results, task_plan, sid):
+            ta_results["ta_detect_abnormal_result"] = await detect_abnormal_result(sid)
+        if await should_run_task("ta_evaluate_reflex_rules", "sa_test_recommendation", ta_results, task_plan, sid):
+            ta_results["ta_evaluate_reflex_rules"] = await evaluate_reflex_rules(sid)
+        if await should_run_task("ta_recommend_additional_test", "sa_test_recommendation", ta_results, task_plan, sid):
+            ta_results["ta_recommend_additional_test"] = await recommend_additional_test(sid)
+        if await should_run_task("ta_create_reflex_order", "sa_test_recommendation", ta_results, task_plan, sid):
+            ta_results["ta_create_reflex_order"] = await create_reflex_order(sid)
+
+    _dynamic = await run_dynamic_tasks("lab_agent", task_plan, ta_results, sid)
+    return {
+        "status": "completed",
+        "agent_id": "lab_agent",
+        "prioritization": {
+            "stat_count": (ta_results.get("ta_check_stat_status") or {}).get("stat_count", 0),
+            "prioritized": (ta_results.get("ta_apply_icu_er_priority") or {}).get("prioritized_count", 0),
+        },
+        "tracking": {
+            "pending_collection": (ta_results.get("ta_check_sample_collection") or {}).get("pending_count", 0),
+            "in_transit": (ta_results.get("ta_check_sample_transport") or {}).get("in_transit", 0),
+            "missing": (ta_results.get("ta_verify_sample_receipt") or {}).get("missing_count", 0),
+        },
+        "tat": {
+            "overdue": (ta_results.get("ta_check_tat_threshold") or {}).get("overdue_count", 0),
+            "bottleneck": (ta_results.get("ta_analyze_tat_bottleneck") or {}).get("bottleneck_stage"),
+        },
+        "quality_control": {
+            "qc_failed": (ta_results.get("ta_check_qc_status") or {}).get("qc_failed", False),
+            "failed_count": (ta_results.get("ta_check_qc_status") or {}).get("failed_count", 0),
+        },
+        "critical_results": {
+            "critical_count": (ta_results.get("ta_detect_critical_results") or {}).get("critical_count", 0),
+            "notified": (ta_results.get("ta_notify_physician_critical") or {}).get("notified_count", 0),
+        },
+        **(_dynamic and {"dynamic_tasks": _dynamic} or {}),
+    }
+
+
+# -- Housekeeping --------------------------------------------------------------
+
+async def run_housekeeping_body(sid: str, ctx: dict) -> dict:
+    beds = await get_vacated_beds(sid)
+    if not beds:
+        return {"status": "completed", "message": "No beds currently require cleaning"}
+    result = await dispatch_housekeeping(HousekeepingDispatchInput(session_id=sid, beds=beds))
+    return {"status": "completed", "dispatched": result["dispatched"]}
+
+
+# -- OT ------------------------------------------------------------------------
+
+async def run_ot_body(sid: str, ctx: dict) -> dict:
+    task_plan: dict = ctx.get("_task_plan", {})
+    ta: dict = {}
+
+    # -- sa_ot_census: single OT fetch (schedule, theatres, equipment, post-op beds)
+    if await should_run_task("ta_get_ot_census", "sa_ot_census", ta, task_plan):
+        cached = await get_prefetch_cache(GetPrefetchInput(session_id=sid, task_id="ta_get_ot_census"))
+        ta["ta_get_ot_census"] = cached if cached else await get_ot_census(sid)
+
+    census = ta.get("ta_get_ot_census", {})
+    schedule = census.get("upcoming_surgeries", [])
+    rooms = census.get("rooms", [])
+    rs = census.get("room_status", [])
+    equip = census.get("equipment_by_surgery", {})
+
+    if not schedule and not rs:
+        return {"status": "completed", "message": "No OT data available"}
+
+    # -- sa_ot_turnaround: theatre readiness, delays, staff (consumes census) -----
+    if await should_run_task("ta_ot_check_cleaning", "sa_ot_turnaround", ta, task_plan):
+        ta["ta_ot_check_cleaning"] = await check_ot_room_cleaning(OtRoomInput(sid, rs))
+
+    if await should_run_task("ta_ot_check_instruments", "sa_ot_turnaround", ta, task_plan):
+        ta["ta_ot_check_instruments"] = await check_ot_instrument_readiness(OtInstrumentInput(sid, schedule, equip))
+
+    if await should_run_task("ta_ot_track_turnaround", "sa_ot_turnaround", ta, task_plan):
+        ta["ta_ot_track_turnaround"] = await track_ot_turnaround(OtRoomInput(sid, rs))
+
+    if await should_run_task("ta_ot_predict_delays", "sa_ot_turnaround", ta, task_plan):
+        ta["ta_ot_predict_delays"] = await predict_ot_delays(OtDelayInput(
+            sid, rs, schedule, ta.get("ta_ot_track_turnaround", {}).get("rooms_active", [])))
+
+    if await should_run_task("ta_ot_coordinate_staff", "sa_ot_turnaround", ta, task_plan):
+        ta["ta_ot_coordinate_staff"] = await coordinate_ot_staff(OtStaffInput(
+            sid,
+            ta.get("ta_ot_predict_delays", {}).get("delay_risks", []),
+            ta.get("ta_ot_check_cleaning", {}).get("rooms_to_clean", []),
+            ta.get("ta_ot_check_instruments", {}).get("gaps", []),
+        ))
+
+    # -- sa_ot_scheduling: elective plan -- conflicts, resources, slot/load opt ---
+    if await should_run_task("ta_ot_detect_conflicts", "sa_ot_scheduling", ta, task_plan):
+        ta["ta_ot_detect_conflicts"] = await detect_ot_conflicts(OtScheduleInput(sid, schedule, rooms))
+
+    if await should_run_task("ta_ot_check_resources", "sa_ot_scheduling", ta, task_plan):
+        ta["ta_ot_check_resources"] = await check_ot_resource_availability(OtScheduleInput(sid, schedule, rooms))
+
+    conflicts = ta.get("ta_ot_detect_conflicts", {})
+
+    if await should_run_task("ta_ot_optimise_slots", "sa_ot_scheduling", ta, task_plan):
+        ta["ta_ot_optimise_slots"] = await optimise_ot_slots(OtSlotInput(sid, schedule, rooms, conflicts))
+
+    if await should_run_task("ta_ot_balance_load", "sa_ot_scheduling", ta, task_plan):
+        ta["ta_ot_balance_load"] = await balance_ot_load(OtLoadInput(
+            sid, schedule, rooms, ta.get("ta_ot_check_resources", {}).get("cases_by_room", {})))
+
+    # G32: derived open theatre slots + executable surgical reschedule. `census["schedule"]`
+    # is the FULL booked list (not today-only) so future free windows are visible.
+    all_bookings = census.get("schedule", [])
+    if await should_run_task("ta_ot_find_theatre_slots", "sa_ot_scheduling", ta, task_plan):
+        ta["ta_ot_find_theatre_slots"] = await find_ot_theatre_slots(OtSlotSearchInput(
+            session_id=sid, rooms=rooms, booked_schedule=all_bookings))
+
+    if await should_run_task("ta_ot_reschedule_surgery", "sa_ot_scheduling", ta, task_plan):
+        ta["ta_ot_reschedule_surgery"] = await reschedule_ot_surgery(OtRescheduleInput(
+            session_id=sid, booked_schedule=all_bookings, rooms=rooms, goal=ctx.get("_goal", "")))
+
+    # -- sa_ot_emergency: acuity-reactive -- detect non-elective cases and respond
+    if await should_run_task("ta_ot_find_emergencies", "sa_ot_emergency", ta, task_plan):
+        ta["ta_ot_find_emergencies"] = await find_ot_emergencies(OtScheduleInput(sid, schedule, rooms))
+
+    emergencies = ta.get("ta_ot_find_emergencies", {})
+
+    if await should_run_task("ta_ot_handle_emergencies", "sa_ot_emergency", ta, task_plan):
+        ta["ta_ot_handle_emergencies"] = await handle_ot_emergencies(OtEmergencyInput(
+            sid, emergencies.get("emergency_cases", []), rooms))
+
+    # -- sa_ot_analysis: terminal synthesis -- runs AFTER turnaround + scheduling
+    # so efficiency scoring sees the real conflict_count instead of a placeholder.
+    if await should_run_task("ta_ot_score_efficiency", "sa_ot_analysis", ta, task_plan):
+        maintenance = sum(1 for r in rooms if (r.get("status") or "") == "Maintenance")
+        ta["ta_ot_score_efficiency"] = await score_ot_efficiency(OtEfficiencyInput(
+            sid,
+            maintenance_rooms=maintenance,
+            high_risk_delays=ta.get("ta_ot_predict_delays", {}).get("high_risk_count", 0),
+            instrument_gaps=ta.get("ta_ot_check_instruments", {}).get("gap_count", 0),
+            conflict_count=conflicts.get("conflict_count", 0),
+        ))
+
+    if await should_run_task("ta_analyze_ot_capacity", "sa_ot_analysis", ta, task_plan):
+        ta["ta_analyze_ot_capacity"] = await analyze_ot_capacity(OtCapacityInput(
+            sid, schedule, rooms, conflicts, emergencies.get("emergency_cases", []),
+            ta.get("ta_ot_check_resources", {})))
+
+    # OT reprioritisation (executable): move electives flagged 'delay' to a later slot.
+    if await should_run_task("ta_ot_defer_electives", "sa_ot_analysis", ta, task_plan):
+        ta["ta_ot_defer_electives"] = await defer_ot_electives(OtDeferInput(
+            session_id=sid, booked_schedule=all_bookings, rooms=rooms,
+            case_recommendations=ta.get("ta_analyze_ot_capacity", {}).get("case_recommendations", [])))
+
+    return {
+        "status": "completed",
+        "upcoming_today": len(schedule),
+        "scheduled_cases": census.get("case_count", len(schedule)),
+        "post_op_beds_available": census.get("post_op_beds_available"),
+        "capacity_recommendations": ta.get("ta_analyze_ot_capacity", {}).get("recommendation_count", 0),
+        "efficiency_score": ta.get("ta_ot_score_efficiency", {}).get("efficiency_score"),
+        "delay_risks": len(ta.get("ta_ot_predict_delays", {}).get("delay_risks", [])),
+        "instrument_gaps": ta.get("ta_ot_check_instruments", {}).get("gap_count", 0),
+        "conflicts": conflicts.get("conflict_count", 0),
+        "emergency_actions": len(ta.get("ta_ot_handle_emergencies", {}).get("emergency_actions", [])),
+        "slot_optimizations": len(ta.get("ta_ot_optimise_slots", {}).get("slot_optimizations", [])),
+        "open_ot_slots": ta.get("ta_ot_find_theatre_slots", {}).get("open_slot_count", 0),
+        "reschedules_staged": ta.get("ta_ot_reschedule_surgery", {}).get("rescheduled", 0),
+        "electives_deferred": ta.get("ta_ot_defer_electives", {}).get("deferred", 0),
+        "turnaround_summary": ta.get("ta_ot_predict_delays", {}).get("summary", ""),
+        "scheduling_summary": ta.get("ta_ot_balance_load", {}).get("summary", ""),
+    }
+
+
+# -- Billing -------------------------------------------------------------------
+
+async def run_billing_body(sid: str, ctx: dict) -> dict:
+    task_type = ctx.get("_task_type", "")
+    goal = ctx.get("_goal", "")
+    ta_results: dict = {}
+    _raw_plan = ctx.get("_task_plan")
+    task_plan: dict | None = dict(_raw_plan) if _raw_plan is not None else None
+    if task_plan is not None and goal:
+        seed_planned_slots(task_plan, _BILLING_TASKS)
+
+    # (revenue/billing split 2026-06) billing_agent now executes billing ops:
+    # single-patient invoice lookup (patient_billing) and bill generation
+    # (initiate_billing). Ported from run_revenue_body.
+    if task_type == "patient_billing":
+        if task_plan is not None:
+            await plan_subagent("billing_agent", "sa_rev_patient_billing", {}, task_plan, ta_results, goal, sid)
+        if await should_run_task("ta_get_patient_invoices", "sa_rev_patient_billing", ta_results, task_plan, sid):
+            ta_results["ta_get_patient_invoices"] = await get_patient_billing(
+                PatientBillingInput(session_id=sid, goal=goal))
+        return {"status": "completed", "mode": "patient_billing", **ta_results.get("ta_get_patient_invoices", {})}
+
+    if task_type == "initiate_billing":
+        if task_plan is not None:
+            await plan_subagent("billing_agent", "sa_rev_initiate_billing", {}, task_plan, ta_results, goal, sid)
+        if await should_run_task("ta_create_billing_request", "sa_rev_initiate_billing", ta_results, task_plan, sid):
+            ta_results["ta_create_billing_request"] = await create_billing_request(
+                InitiateBillingInput(session_id=sid, goal=goal))
+        return {"status": "completed", "mode": "initiate_billing", "agent_id": "billing_agent",
+                **ta_results.get("ta_create_billing_request", {})}
+
+    if task_plan is not None:
+        await plan_subagent("billing_agent", "sa_claim_validation", {}, task_plan, ta_results, goal, sid)
+
+    if subagent_in_plan("sa_claim_validation", task_plan):
+        if await should_run_task("ta_detect_claim_discrepancies", "sa_claim_validation", ta_results, task_plan, sid):
+            ta_results["ta_detect_claim_discrepancies"] = await detect_claim_discrepancies(sid)
+        if await should_run_task("ta_validate_insurance_eligibility", "sa_claim_validation", ta_results, task_plan, sid):
+            ta_results["ta_validate_insurance_eligibility"] = await validate_insurance_eligibility(sid)
+        if await should_run_task("ta_check_billing_compliance", "sa_claim_validation", ta_results, task_plan, sid):
+            ta_results["ta_check_billing_compliance"] = await check_billing_compliance(sid)
+
+    if task_plan is not None:
+        await plan_subagent("billing_agent", "sa_billing_optimization", {}, task_plan, ta_results, goal, sid)
+
+    if subagent_in_plan("sa_billing_optimization", task_plan):
+        if await should_run_task("ta_track_pending_payments", "sa_billing_optimization", ta_results, task_plan, sid):
+            ta_results["ta_track_pending_payments"] = await track_pending_payments(sid)
+        if await should_run_task("ta_detect_revenue_leakage", "sa_billing_optimization", ta_results, task_plan, sid):
+            ta_results["ta_detect_revenue_leakage"] = await detect_revenue_leakage(sid)
+        if await should_run_task("ta_generate_billing_recommendations", "sa_billing_optimization", ta_results, task_plan, sid):
+            ta_results["ta_generate_billing_recommendations"] = await generate_billing_recommendations(
+                BillingOptimizationInput(session_id=sid, goal=goal))
+        if await should_run_task("ta_prioritize_payments", "sa_billing_optimization", ta_results, task_plan, sid):
+            ta_results["ta_prioritize_payments"] = await prioritize_payments(sid)
+        if await should_run_task("ta_trigger_payment_reminder", "sa_billing_optimization", ta_results, task_plan, sid):
+            ta_results["ta_trigger_payment_reminder"] = await trigger_payment_reminder(sid)
+        if await should_run_task("ta_notify_followup_team", "sa_billing_optimization", ta_results, task_plan, sid):
+            ta_results["ta_notify_followup_team"] = await notify_followup_team(sid)
+
+    # (revenue/billing split 2026-06) bill-generation moved in from revenue_agent.
+    # Default-flow dispatch (non task_type runs) so staged billing requests surface here too.
+    if task_plan is not None:
+        await plan_subagent("billing_agent", "sa_rev_initiate_billing", {}, task_plan, ta_results, goal, sid)
+
+    if subagent_in_plan("sa_rev_initiate_billing", task_plan):
+        if await should_run_task("ta_create_billing_request", "sa_rev_initiate_billing", ta_results, task_plan, sid):
+            ta_results["ta_create_billing_request"] = await create_billing_request(
+                InitiateBillingInput(session_id=sid, goal=goal))
+
+    billing = ta_results.get("ta_create_billing_request", {})
+    _dynamic = await run_dynamic_tasks("billing_agent", task_plan, ta_results, sid)
+    return {
+        "status": "completed",
+        "agent_id": "billing_agent",
+        **({"billing_requests": {
+            "patient_count":   billing.get("patient_count", 0),
+            "patients_billed": billing.get("patients_billed", []),
+            "status":          billing.get("status", ""),
+        }} if billing else {}),
+        "validation": {
+            "discrepancies": (ta_results.get("ta_detect_claim_discrepancies") or {}).get("discrepancy_count", 0),
+            "eligibility_issues": (ta_results.get("ta_validate_insurance_eligibility") or {}).get("eligibility_issues", 0),
+            "compliance_issues": (ta_results.get("ta_check_billing_compliance") or {}).get("total_compliance_issues", 0),
+        },
+        "optimization": {
+            "overdue_count": (ta_results.get("ta_track_pending_payments") or {}).get("overdue_count", 0),
+            "overdue_amount": (ta_results.get("ta_track_pending_payments") or {}).get("overdue_amount", 0),
+            "leakage_amount": (ta_results.get("ta_detect_revenue_leakage") or {}).get("estimated_leakage", 0),
+            "recommendations": (ta_results.get("ta_generate_billing_recommendations") or {}).get("recommendations", []),
+        },
+        **(_dynamic and {"dynamic_tasks": _dynamic} or {}),
+    }
 

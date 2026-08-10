@@ -53,10 +53,6 @@ class SessionState(TypedDict, total=False):
     # TaskExecutionError, graph.nodes). Merge keeps the last writer if two nodes in one
     # superstep both fail (synthesis recommends off the merged one).
     _task_failed: Annotated[dict, merge_dict]
-    # {agent_node_id: bid_proposal} -- propose-phase scores written during a bidding
-    # strategy so the arbiter can rank contenders. merge_dict keeps concurrent
-    # proposers from clobbering each other (each writes under its own node id).
-    _bids: Annotated[dict[str, Any], merge_dict]
     # final synthesis (single writer -- the synthesise node)
     recommendation: dict
 

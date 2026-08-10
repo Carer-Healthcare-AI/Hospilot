@@ -85,7 +85,6 @@ agents/
 workflows/
 ├── planner.py         LLM goal → pipeline (agents + edges)
 ├── unified_executor.py  schema-only codegen + RestrictedPython sandbox
-├── strategies.py      how a level's agents are arbitrated (common_goal, bidding, …)
 ├── materializer.py · task_codegen.py · dynamic_task.py
 ├── graph/             the LangGraph runtime
 │   ├── builder.py     pipeline snapshot → StateGraph
