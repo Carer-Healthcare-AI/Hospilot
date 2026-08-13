@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ask Hospilot</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; color: #0f172a; }
+    h1 { margin-bottom: 8px; }
+    p { color: #64748b; }
+    textarea { width: 100%; min-height: 90px; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; }
+    button { margin-top: 12px; background: #4f46e5; color: #fff; border: 0; border-radius: 8px; padding: 10px 16px; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .panel { margin-top: 24px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #111827; color: #e2e8f0; padding: 12px; border-radius: 8px; overflow-x: auto; }
+    .answer { font-size: 16px; line-height: 1.6; white-space: pre-wrap; }
+    .meta { font-size: 12px; color: #64748b; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Ask Hospilot</h1>
+  <p>Ask plain-English questions about hospital beds, staffing, supplies, and operations.</p>
+
+  <textarea id="question" placeholder="How many ICU beds are available right now?"></textarea>
+  <button id="askBtn">Ask</button>
+
+  <div id="result" class="panel" style="display:none">
+    <div id="answer" class="answer"></div>
+    <div id="meta" class="meta"></div>
+    <h3>SQL</h3>
+    <pre id="sql"></pre>
+    <h3>Retrieved rows</h3>
+    <pre id="rows"></pre>
+  </div>
+
+  <script>
+    const questionEl = document.getElementById("question");
+    const askBtn = document.getElementById("askBtn");
+    const resultEl = document.getElementById("result");
+    const answerEl = document.getElementById("answer");
+    const metaEl = document.getElementById("meta");
+    const sqlEl = document.getElementById("sql");
+    const rowsEl = document.getElementById("rows");
+
+    async function ask() {
+      const question = questionEl.value.trim();
+      if (!question) return;
+
+      askBtn.disabled = true;
+      askBtn.textContent = "Thinking…";
+
+      try {
+        const response = await fetch("/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question })
+        });
+        const data = await response.json();
+        resultEl.style.display = "block";
+        answerEl.textContent = data.answer || data.error || "No answer returned.";
+        metaEl.textContent = `Grounded: ${data.grounded ?? false} · Planner: ${data.planner || data.reason || "n/a"}`;
+        sqlEl.textContent = data.sql || "(none)";
+        rowsEl.textContent = JSON.stringify(data.rows || [], null, 2);
+      } catch (error) {
+        resultEl.style.display = "block";
+        answerEl.textContent = error.message;
+      } finally {
+        askBtn.disabled = false;
+        askBtn.textContent = "Ask";
+      }
+    }
+
+    askBtn.addEventListener("click", ask);
+    questionEl.addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") ask();
+    });
+  </script>
+</body>
+</html>
