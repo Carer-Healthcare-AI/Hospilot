@@ -1,0 +1,9 @@
+{
+  "name": "hospilot-widget-sarvaswatiwari",
+  "private": true,
+  "version": "1.0.0",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "dev": "node server.js"
+  }
+}
