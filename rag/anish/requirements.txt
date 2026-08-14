@@ -1,0 +1,2 @@
+# Optional — the app also loads .env without this package.
+python-dotenv>=1.0.1

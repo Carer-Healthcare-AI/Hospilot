@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ask Hospilot</title>
+  <style>
+    :root {
+      --bg: #f3f0e8;
+      --ink: #1a2330;
+      --muted: #5a6573;
+      --panel: #fffdf8;
+      --line: #d5cfc2;
+      --accent: #0b6e4f;
+      --accent-ink: #fff;
+      --warn: #8a3b12;
+      --mono: "Cascadia Code", "Consolas", "SFMono-Regular", monospace;
+      --sans: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--sans);
+      color: var(--ink);
+      background:
+        radial-gradient(900px 400px at 10% -10%, #dceee6 0%, transparent 55%),
+        radial-gradient(700px 360px at 100% 0%, #efe6d4 0%, transparent 50%),
+        var(--bg);
+    }
+    main {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 2rem 1.25rem 3rem;
+    }
+    h1 {
+      margin: 0 0 0.25rem;
+      font-size: 1.75rem;
+      letter-spacing: -0.02em;
+    }
+    .sub {
+      margin: 0 0 1.5rem;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    form {
+      display: flex;
+      gap: 0.6rem;
+      margin-bottom: 1.25rem;
+    }
+    input[type="text"] {
+      flex: 1;
+      padding: 0.85rem 1rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 1rem;
+      background: var(--panel);
+      color: var(--ink);
+    }
+    button {
+      padding: 0.85rem 1.1rem;
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: var(--accent-ink);
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    .examples {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin: -0.5rem 0 1.25rem;
+    }
+    .examples button {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid #b7d7cb;
+      font-weight: 500;
+      font-size: 0.82rem;
+      padding: 0.4rem 0.65rem;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 1rem 1.1rem;
+      margin-bottom: 0.9rem;
+    }
+    .card h2 {
+      margin: 0 0 0.6rem;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    .answer { font-size: 1.05rem; line-height: 1.5; white-space: pre-wrap; }
+    .cannot .answer { color: var(--warn); }
+    pre {
+      margin: 0;
+      overflow: auto;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.4rem 0.5rem;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-weight: 600; }
+    .hidden { display: none; }
+    .status { color: var(--muted); font-size: 0.9rem; margin-bottom: 0.75rem; }
+    .err { color: #a11; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Ask Hospilot</h1>
+    <p class="sub">Plain-English questions over hospital beds, admissions, visits, and staffing — answers grounded in SQL, with the query and rows shown.</p>
+
+    <form id="ask-form">
+      <input id="q" type="text" placeholder="e.g. How many ICU beds are free right now?" autocomplete="off" required />
+      <button type="submit" id="go">Ask</button>
+    </form>
+
+    <div class="examples">
+      <button type="button" data-q="How many ICU beds are free right now?">Free ICU beds</button>
+      <button type="button" data-q="Which wards are short-staffed tonight?">Short-staffed tonight</button>
+      <button type="button" data-q="What's the bed occupancy in General Ward 2 East?">GEN-2E occupancy</button>
+      <button type="button" data-q="What was the average patient satisfaction score last month?">Unanswerable</button>
+    </div>
+
+    <p id="status" class="status hidden"></p>
+
+    <section id="answer-card" class="card hidden">
+      <h2>Answer</h2>
+      <div id="answer" class="answer"></div>
+    </section>
+
+    <section id="sql-card" class="card hidden">
+      <h2>SQL generated</h2>
+      <pre id="sql"></pre>
+    </section>
+
+    <section id="rows-card" class="card hidden">
+      <h2>Rows retrieved</h2>
+      <div id="rows"></div>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById("ask-form");
+    const input = document.getElementById("q");
+    const go = document.getElementById("go");
+    const status = document.getElementById("status");
+    const answerCard = document.getElementById("answer-card");
+    const answerEl = document.getElementById("answer");
+    const sqlCard = document.getElementById("sql-card");
+    const sqlEl = document.getElementById("sql");
+    const rowsCard = document.getElementById("rows-card");
+    const rowsEl = document.getElementById("rows");
+
+    document.querySelectorAll(".examples button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        input.value = btn.dataset.q;
+        form.requestSubmit();
+      });
+    });
+
+    function show(el, on) {
+      el.classList.toggle("hidden", !on);
+    }
+
+    function renderRows(columns, rows) {
+      if (!columns || !columns.length) {
+        rowsEl.textContent = "(no columns)";
+        return;
+      }
+      if (!rows.length) {
+        rowsEl.textContent = "(no rows)";
+        return;
+      }
+      const table = document.createElement("table");
+      const thead = document.createElement("thead");
+      const hr = document.createElement("tr");
+      columns.forEach((c) => {
+        const th = document.createElement("th");
+        th.textContent = c;
+        hr.appendChild(th);
+      });
+      thead.appendChild(hr);
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      rows.slice(0, 50).forEach((row) => {
+        const tr = document.createElement("tr");
+        columns.forEach((c) => {
+          const td = document.createElement("td");
+          const v = row[c];
+          td.textContent = v === null || v === undefined ? "" : String(v);
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      rowsEl.innerHTML = "";
+      rowsEl.appendChild(table);
+      if (rows.length > 50) {
+        const note = document.createElement("p");
+        note.className = "status";
+        note.textContent = `Showing 50 of ${rows.length} rows.`;
+        rowsEl.appendChild(note);
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const question = input.value.trim();
+      if (!question) return;
+
+      go.disabled = true;
+      status.classList.remove("err");
+      status.textContent = "Querying…";
+      show(status, true);
+      show(answerCard, false);
+      show(sqlCard, false);
+      show(rowsCard, false);
+      answerCard.classList.remove("cannot");
+
+      try {
+        const res = await fetch("/api/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || res.statusText);
+
+        answerEl.textContent = data.answer || "";
+        show(answerCard, true);
+        if (!data.can_answer) answerCard.classList.add("cannot");
+
+        if (data.sql) {
+          sqlEl.textContent = data.sql;
+          show(sqlCard, true);
+        }
+        if (data.columns && data.columns.length) {
+          renderRows(data.columns, data.rows || []);
+          show(rowsCard, true);
+        }
+
+        status.textContent = data.can_answer
+          ? "Grounded in database results."
+          : "Could not answer from schema / data.";
+      } catch (err) {
+        status.classList.add("err");
+        status.textContent = String(err.message || err);
+      } finally {
+        go.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

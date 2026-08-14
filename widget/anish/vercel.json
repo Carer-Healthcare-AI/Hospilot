@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/create-session.js", "use": "@vercel/node" },
+    { "src": "api/session-status.js", "use": "@vercel/node" },
+    { "src": "demo.html", "use": "@vercel/static" },
+    { "src": "widget.js", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/api/create-session", "dest": "/api/create-session.js" },
+    { "src": "/api/session-status", "dest": "/api/session-status.js" },
+    { "src": "/", "dest": "/demo.html" },
+    { "src": "/widget.js", "dest": "/widget.js" }
+  ]
+}

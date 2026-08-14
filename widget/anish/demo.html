@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CarePlus Hospital — HIS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #1e293b; display: flex; height: 100vh; overflow: hidden; }
+
+    /* ── Sidebar ── */
+    aside {
+      width: 220px; flex-shrink: 0; background: #fff; border-right: 1px solid #e2e8f0;
+      display: flex; flex-direction: column;
+    }
+    .sidebar-brand {
+      padding: 18px 20px; display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .brand-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: linear-gradient(135deg, #6366f1, #3b82f6);
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-size: 15px; flex-shrink: 0;
+    }
+    .brand-name { font-size: 14px; font-weight: 700; color: #0f172a; }
+    .brand-sub  { font-size: 10px; color: #94a3b8; }
+
+    nav { padding: 12px 10px; flex: 1; }
+    .nav-item {
+      padding: 8px 12px; border-radius: 8px; font-size: 13px; cursor: pointer;
+      display: flex; align-items: center; gap: 10px; color: #64748b;
+      transition: background 0.15s, color 0.15s; margin-bottom: 2px;
+    }
+    .nav-item:hover  { background: #f8fafc; color: #1e293b; }
+    .nav-item.active { background: #eff6ff; color: #3b82f6; font-weight: 500; }
+    .nav-icon { font-size: 15px; width: 18px; text-align: center; }
+
+    .sidebar-footer { padding: 16px; border-top: 1px solid #e2e8f0; }
+    .user-row { display: flex; align-items: center; gap: 10px; }
+    .user-avatar {
+      width: 34px; height: 34px; border-radius: 50%; background: #eff6ff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 600; color: #3b82f6; flex-shrink: 0;
+    }
+    .user-name { font-size: 13px; font-weight: 500; color: #0f172a; }
+    .user-role { font-size: 11px; color: #94a3b8; }
+
+    /* ── Main ── */
+    main { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+
+    .topbar {
+      background: #fff; border-bottom: 1px solid #e2e8f0;
+      padding: 14px 28px; display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .page-title { font-size: 18px; font-weight: 700; color: #0f172a; }
+    .page-sub   { font-size: 13px; color: #94a3b8; margin-top: 1px; }
+    .topbar-actions { display: flex; align-items: center; gap: 12px; }
+    .search-bar {
+      padding: 8px 14px; border-radius: 8px; border: 1px solid #e2e8f0;
+      background: #f8fafc; color: #1e293b; font-size: 13px; width: 260px; outline: none;
+    }
+    .icon-action {
+      width: 36px; height: 36px; border-radius: 8px; border: 1px solid #e2e8f0;
+      background: #fff; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: #64748b; font-size: 16px; transition: background 0.15s;
+    }
+    .icon-action:hover { background: #f8fafc; }
+
+    .content { padding: 28px; flex: 1; }
+
+    /* ── Stats row ── */
+    .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+    .stat-card {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px;
+    }
+    .stat-label  { font-size: 12px; color: #94a3b8; font-weight: 500; margin-bottom: 8px; }
+    .stat-value  { font-size: 26px; font-weight: 700; color: #0f172a; }
+    .stat-delta  { font-size: 12px; margin-top: 4px; }
+    .delta-up   { color: #22c55e; }
+    .delta-down { color: #ef4444; }
+
+    /* ── Content grid ── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px;
+    }
+    .card-title { font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 16px; }
+    .card-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px;
+    }
+    .card-row:last-child { border-bottom: none; }
+    .card-label { color: #64748b; }
+    .card-val   { font-weight: 600; color: #0f172a; }
+
+    /* OT table */
+    .ot-row { display: grid; grid-template-columns: 80px 1fr 100px 100px; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+    .ot-row:last-child { border-bottom: none; }
+    .ot-room { font-weight: 600; color: #0f172a; }
+    .ot-case { color: #64748b; }
+    .ot-status { padding: 3px 9px; border-radius: 6px; font-size: 11px; font-weight: 600; text-align: center; }
+    .ot-active  { background: #dcfce7; color: #16a34a; }
+    .ot-waiting { background: #fef9c3; color: #ca8a04; }
+    .ot-done    { background: #f1f5f9; color: #64748b; }
+
+    .badge-count {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 22px; height: 22px; border-radius: 50%;
+      font-size: 11px; font-weight: 700;
+    }
+    .badge-red  { background: #fee2e2; color: #ef4444; }
+    .badge-green { background: #dcfce7; color: #16a34a; }
+    .badge-blue { background: #dbeafe; color: #3b82f6; }
+
+    /* ── Responsive ─────────────────────────────────────────────────────── */
+    @media (max-width: 1024px) {
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      .search-bar { width: 200px; }
+      .content { padding: 20px; }
+    }
+
+    @media (max-width: 768px) {
+      body { flex-direction: column; height: auto; min-height: 100vh; overflow-y: auto; }
+      aside {
+        width: 100%; flex-direction: row; align-items: center; flex-wrap: wrap;
+        border-right: none; border-bottom: 1px solid #e2e8f0;
+      }
+      .sidebar-brand { order: 1; border-bottom: none; }
+      .sidebar-footer { order: 2; margin-left: auto; border-top: none; }
+      nav { order: 3; flex: 1 1 100%; display: flex; gap: 4px; padding: 8px 12px; overflow-x: auto; }
+      .nav-item { margin-bottom: 0; white-space: nowrap; }
+      main { overflow-y: visible; }
+      .grid-2 { grid-template-columns: 1fr; }
+      .topbar { padding: 14px 16px; }
+      .content { padding: 16px; }
+    }
+
+    @media (max-width: 560px) {
+      .stats-row { grid-template-columns: 1fr; gap: 12px; }
+      .topbar { flex-direction: column; align-items: stretch; gap: 10px; }
+      .topbar-actions { width: 100%; }
+      .search-bar { flex: 1; width: auto; }
+      .stat-card { padding: 16px; }
+      .stat-value { font-size: 22px; }
+    }
+
+    /* ── Hospilot mission console (side rail) ── */
+    :root {
+      --hp-ink: #10221a;
+      --hp-leaf: #1f6b4a;
+      --hp-mint: #b8e0c8;
+      --hp-sand: #f3eee4;
+      --hp-line: rgba(16, 34, 26, 0.14);
+      --hp-warn: #b45309;
+      --hp-bad: #9f1239;
+    }
+
+    #hospilot-widget {
+      --panel-w: min(420px, calc(100vw - 52px));
+      position: fixed;
+      top: 0; right: 0; bottom: 0;
+      z-index: 1000;
+      font-family: "Sora", sans-serif;
+      pointer-events: none;
+    }
+    #hospilot-widget * { box-sizing: border-box; }
+
+    #widget-toggle {
+      pointer-events: auto;
+      position: absolute;
+      top: 50%; right: 0;
+      transform: translateY(-50%);
+      width: 44px; min-height: 168px;
+      border: none; border-radius: 10px 0 0 10px;
+      padding: 14px 0;
+      background:
+        linear-gradient(180deg, rgba(184, 224, 200, 0.22), transparent 42%),
+        #143528;
+      color: var(--hp-mint);
+      cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      box-shadow: -6px 0 24px rgba(16, 34, 26, 0.18);
+      transition: right 0.35s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s;
+    }
+    #hospilot-widget.is-open #widget-toggle {
+      right: var(--panel-w);
+    }
+    #widget-toggle .hp-toggle-mark {
+      width: 10px; height: 10px; border-radius: 2px;
+      background: var(--hp-mint);
+      animation: hp-pulse 2.4s ease-in-out infinite;
+    }
+    #widget-toggle .hp-toggle-label {
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      font-size: 11px; font-weight: 600; letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    #widget-panel {
+      pointer-events: auto;
+      position: absolute;
+      top: 0; right: 0; bottom: 0;
+      width: var(--panel-w);
+      display: flex; flex-direction: column;
+      background:
+        radial-gradient(ellipse 80% 40% at 100% 0%, rgba(184, 224, 200, 0.35), transparent 55%),
+        linear-gradient(165deg, #f7f4ee 0%, #ebe4d6 48%, #e4efe8 100%);
+      border-left: 1px solid var(--hp-line);
+      box-shadow: -20px 0 50px rgba(16, 34, 26, 0.16);
+      transform: translateX(105%);
+      transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+      overflow: hidden;
+    }
+    #widget-panel.open,
+    #hospilot-widget.is-open #widget-panel {
+      transform: translateX(0);
+    }
+
+    .hp-panel-head {
+      padding: 22px 22px 16px;
+      border-bottom: 1px solid var(--hp-line);
+    }
+    .hp-brand-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .hp-brand {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .hp-brand-mark {
+      width: 38px; height: 38px;
+      display: grid; place-items: center;
+      background: var(--hp-ink); color: var(--hp-mint);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 13px; font-weight: 500;
+      clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+    }
+    .hp-brand-name {
+      font-size: 18px; font-weight: 700; color: var(--hp-ink); letter-spacing: -0.02em;
+    }
+    .hp-brand-sub {
+      font-size: 11px; color: #5f6f66; margin-top: 2px;
+    }
+    .hp-chip {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px; letter-spacing: 0.04em;
+      padding: 5px 8px;
+      border: 1px solid var(--hp-line);
+      background: rgba(255,255,255,0.55);
+      color: var(--hp-leaf);
+    }
+
+    .hp-steps {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+      padding: 14px 22px 0;
+    }
+    .hp-step {
+      padding: 10px 8px;
+      border: 1px solid var(--hp-line);
+      background: rgba(255,255,255,0.35);
+      font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+      text-transform: uppercase; color: #6b7a72;
+      text-align: center;
+      transition: background 0.25s, color 0.25s, border-color 0.25s;
+    }
+    .hp-step.is-active {
+      background: var(--hp-ink); color: var(--hp-mint); border-color: var(--hp-ink);
+    }
+    .hp-step.is-done {
+      background: rgba(31, 107, 74, 0.12); color: var(--hp-leaf); border-color: rgba(31, 107, 74, 0.28);
+    }
+
+    .hp-panel-body {
+      flex: 1; padding: 18px 22px 22px;
+      display: flex; flex-direction: column; gap: 14px;
+      overflow-y: auto;
+    }
+    .hp-field-label {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: #5a6a61;
+    }
+    .hp-field-hint {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px; font-weight: 400; letter-spacing: 0; text-transform: none;
+      color: #7a8a80;
+    }
+    #goal {
+      width: 100%; min-height: 110px; resize: vertical;
+      padding: 14px;
+      border: 1px solid var(--hp-line);
+      background: rgba(255,255,255,0.72);
+      color: var(--hp-ink);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 13px; line-height: 1.45;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    #goal:focus {
+      border-color: var(--hp-leaf);
+      box-shadow: 0 0 0 3px rgba(31, 107, 74, 0.15);
+    }
+    #goal:disabled { opacity: 0.6; }
+
+    .hp-actions {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    }
+    #create-plan, #view-plan {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-height: 46px; padding: 0 14px;
+      border: 1px solid transparent;
+      font-family: "Sora", sans-serif;
+      font-size: 13px; font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.15s, opacity 0.2s, background 0.2s;
+    }
+    #create-plan {
+      grid-column: 1 / -1;
+      background: var(--hp-ink); color: var(--hp-sand);
+    }
+    #create-plan:hover:not(:disabled) { transform: translateY(-1px); }
+    #create-plan:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+    #view-plan {
+      grid-column: 1 / -1;
+      display: none;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: flex-start;
+      gap: 6px;
+      min-height: 0;
+      padding: 14px 16px;
+      text-align: left;
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.9), rgba(184, 224, 200, 0.35)),
+        #fff;
+      color: var(--hp-ink);
+      border: 1px solid rgba(31, 107, 74, 0.28);
+      border-left: 4px solid var(--hp-leaf);
+      clip-path: none;
+    }
+    #view-plan.is-visible { display: flex; animation: hp-rise 0.35s ease; }
+    #view-plan:hover { background: #fff; }
+    #view-plan::after { content: none; }
+    #view-plan .vp-kicker {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px; font-weight: 500;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--hp-leaf);
+    }
+    #view-plan .vp-title {
+      font-size: 15px; font-weight: 700; letter-spacing: -0.02em;
+    }
+    #view-plan .vp-sub {
+      font-size: 11px; font-weight: 400; color: #5f6f66;
+    }
+
+    .hp-status-block {
+      margin-top: auto;
+      padding: 12px 14px;
+      border-left: 3px solid #9aaba1;
+      background: rgba(16, 34, 26, 0.04);
+      min-height: 52px;
+    }
+    .hp-status-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.1em;
+      text-transform: uppercase; color: #6b7a72; margin-bottom: 4px;
+    }
+    #status {
+      margin: 0;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px; line-height: 1.4; color: #3d4f45;
+      min-height: 1.2em;
+    }
+    #status[data-kind="ok"] { color: var(--hp-leaf); }
+    #status[data-kind="error"] { color: var(--hp-bad); }
+    #status[data-kind="info"] { color: var(--hp-warn); }
+    .hp-status-block[data-kind="ok"] { border-left-color: var(--hp-leaf); }
+    .hp-status-block[data-kind="error"] { border-left-color: var(--hp-bad); }
+    .hp-status-block[data-kind="info"] { border-left-color: var(--hp-warn); }
+
+    /* ── Live pipeline: bottom sheet + left inspector (not a modal card) ── */
+    #hospilot-container {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 1100;
+      pointer-events: none;
+    }
+    #hospilot-container.is-open {
+      display: block;
+      pointer-events: auto;
+    }
+    .hp-sheet-scrim {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.28);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    #hospilot-container.is-open .hp-sheet-scrim { opacity: 1; }
+
+    .hp-sheet {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      height: min(86vh, 920px);
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      grid-template-rows: 28px 1fr;
+      background: #faf8f4;
+      border-top: 1px solid #d7d0c4;
+      box-shadow: 0 -24px 60px rgba(15, 23, 42, 0.22);
+      transform: translateY(110%);
+      transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    #hospilot-container.is-open .hp-sheet { transform: translateY(0); }
+
+    .hp-sheet-handle {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #efeae1;
+      border-bottom: 1px solid #ddd5c8;
+    }
+    .hp-sheet-handle span {
+      width: 56px; height: 5px;
+      background: #b7aea0;
+    }
+
+    .hp-inspector {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 20px 18px 18px;
+      background:
+        linear-gradient(180deg, #2a1f14 0%, #3d2a18 40%, #1f2933 100%);
+      color: #f4efe6;
+      overflow-y: auto;
+    }
+    .hp-inspector-brand {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #e8b86d;
+    }
+    .hp-inspector h2 {
+      margin: 0;
+      font-family: "Sora", sans-serif;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+    }
+    .hp-inspector-blurb {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.5;
+      color: rgba(244, 239, 230, 0.72);
+    }
+    .hp-inspector-block {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255,255,255,0.12);
+    }
+    .hp-inspector-block label {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #e8b86d;
+    }
+    .hp-inspector-block p,
+    .hp-inspector-block code {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #f4efe6;
+      word-break: break-word;
+    }
+    .hp-inspector-block code {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 11px;
+      color: #c8d4e0;
+    }
+    .hp-link-state {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 11px;
+    }
+    .hp-link-state i {
+      width: 8px; height: 8px;
+      background: #e8b86d;
+      display: inline-block;
+      animation: hp-live-blink 1.6s ease-in-out infinite;
+    }
+    .hp-inspector-actions {
+      margin-top: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #close-plan {
+      width: 100%;
+      border: 1px solid rgba(244, 239, 230, 0.35);
+      background: transparent;
+      color: #f4efe6;
+      padding: 12px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: "Sora", sans-serif;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    #close-plan:hover {
+      background: rgba(244, 239, 230, 0.08);
+    }
+
+    .hp-canvas {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      background: #e7e2d8;
+      padding: 14px 14px 14px 0;
+      display: flex;
+    }
+    .hp-canvas-frame {
+      flex: 1;
+      min-height: 0;
+      background: #fff;
+      border: 1px solid #cfc6b6;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .hp-canvas-caption {
+      flex: 0 0 auto;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 12px;
+      background: #f3eee4;
+      border-bottom: 1px solid #ddd5c8;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #6b6358;
+    }
+    #hospilot-frame {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      border: none;
+      background: #fff;
+    }
+
+    @keyframes hp-live-blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+    @keyframes hp-pulse {
+      0%, 100% { opacity: 0.45; transform: scale(0.9); }
+      50% { opacity: 1; transform: scale(1); }
+    }
+    @keyframes hp-rise {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 860px) {
+      .hp-sheet {
+        grid-template-columns: 1fr;
+        grid-template-rows: 28px auto 1fr;
+        height: 92vh;
+      }
+      .hp-inspector {
+        max-height: 38vh;
+      }
+      .hp-canvas { padding: 0; }
+    }
+    @media (max-width: 640px) {
+      #widget-toggle { min-height: 140px; width: 40px; }
+      .hp-steps { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sidebar -->
+  <aside>
+    <div class="sidebar-brand">
+      <div class="brand-icon">+</div>
+      <div>
+        <div class="brand-name">CarePlus</div>
+        <div class="brand-sub">Hospital HIS</div>
+      </div>
+    </div>
+    <nav>
+      <div class="nav-item active"><span class="nav-icon">📊</span> Dashboard</div>
+      <div class="nav-item"><span class="nav-icon">🏥</span> IPD</div>
+      <div class="nav-item"><span class="nav-icon">🩺</span> OPD</div>
+      <div class="nav-item"><span class="nav-icon">🚨</span> ER</div>
+      <div class="nav-item"><span class="nav-icon">🛏</span> Bed Management</div>
+      <div class="nav-item"><span class="nav-icon">🔬</span> Lab</div>
+      <div class="nav-item"><span class="nav-icon">💊</span> Pharmacy</div>
+      <div class="nav-item"><span class="nav-icon">💰</span> Billing</div>
+      <div class="nav-item"><span class="nav-icon">📁</span> Reports</div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-row">
+        <div class="user-avatar">N</div>
+        <div>
+          <div class="user-name">Dr. Neha Sharma</div>
+          <div class="user-role">Administrator</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main>
+    <div class="topbar">
+      <div>
+        <div class="page-title">Dashboard</div>
+        <div class="page-sub">Overview of hospital operations</div>
+      </div>
+      <div class="topbar-actions">
+        <input class="search-bar" placeholder="Search patients, menus, transactions…">
+        <div class="icon-action">🔔</div>
+        <div class="icon-action">❓</div>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-label">Today's Admissions</div>
+          <div class="stat-value">76</div>
+          <div class="stat-delta delta-up">↑ 12% vs yesterday</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Occupancy</div>
+          <div class="stat-value">82%</div>
+          <div class="stat-delta delta-up">↑ 5% vs yesterday</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Beds</div>
+          <div class="stat-value">350</div>
+          <div class="stat-delta" style="color:#94a3b8">287 Occupied · 48 Vacant · 15 Blocked</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">ER Wait (avg)</div>
+          <div class="stat-value">34m</div>
+          <div class="stat-delta delta-down">↑ 8m vs yesterday</div>
+        </div>
+      </div>
+
+      <!-- Content grid -->
+      <div class="grid-2">
+        <!-- Bed Overview -->
+        <div class="card">
+          <div class="card-title">Bed Overview by Unit</div>
+          <div class="card-row"><span class="card-label">ICU</span><span class="card-val">18 / 24 <span class="badge-count badge-red">6</span></span></div>
+          <div class="card-row"><span class="card-label">General Ward</span><span class="card-val">142 / 180 <span class="badge-count badge-green">38</span></span></div>
+          <div class="card-row"><span class="card-label">Private</span><span class="card-val">68 / 80 <span class="badge-count badge-blue">12</span></span></div>
+          <div class="card-row"><span class="card-label">Emergency</span><span class="card-val">24 / 30 <span class="badge-count badge-red">6</span></span></div>
+          <div class="card-row"><span class="card-label">Paediatric</span><span class="card-val">35 / 36 <span class="badge-count badge-red">1</span></span></div>
+        </div>
+
+        <!-- OT Overview -->
+        <div class="card">
+          <div class="card-title">OT Overview — Today</div>
+          <div class="ot-row" style="color:#94a3b8;font-size:11px;font-weight:600;padding-bottom:6px;">
+            <span>ROOM</span><span>CASE</span><span>STATUS</span><span>TIME</span>
+          </div>
+          <div class="ot-row">
+            <span class="ot-room">OT 1</span>
+            <span class="ot-case">Appendectomy — Dr. Arjun</span>
+            <span class="ot-status ot-active">In Progress</span>
+            <span style="color:#64748b">2:00 PM</span>
+          </div>
+          <div class="ot-row">
+            <span class="ot-room">OT 2</span>
+            <span class="ot-case">Knee Replacement — Dr. Meera</span>
+            <span class="ot-status ot-waiting">Prep</span>
+            <span style="color:#64748b">3:30 PM</span>
+          </div>
+          <div class="ot-row">
+            <span class="ot-room">OT 3</span>
+            <span class="ot-case">Cataract — Dr. Priya</span>
+            <span class="ot-status ot-done">Completed</span>
+            <span style="color:#64748b">12:00 PM</span>
+          </div>
+          <div class="ot-row">
+            <span class="ot-room">OT 4</span>
+            <span class="ot-case">Cholecystectomy — Dr. Rahul</span>
+            <span class="ot-status ot-waiting">Scheduled</span>
+            <span style="color:#64748b">5:00 PM</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+    
+  <!--
+    ═══════════════════════════════════════════════════════════
+    YOUR WIDGET GOES HERE.
+
+    This is the mock HIS dashboard your widget is being embedded into --
+    pretend this is a real hospital's own internal software. Don't copy
+    this file in place; copy it into your own folder under widget/ and
+    wire your widget into your copy (add your <script> tag / elements
+    below this comment).
+    ═══════════════════════════════════════════════════════════
+  -->
+  <div id="hospilot-widget" class="is-open">
+    <button type="button" id="widget-toggle" title="Toggle Hospilot console" aria-label="Toggle Hospilot console" aria-expanded="true">
+      <span class="hp-toggle-mark" aria-hidden="true"></span>
+      <span class="hp-toggle-label">Hospilot</span>
+    </button>
+
+    <aside id="widget-panel" class="open" role="dialog" aria-label="Hospilot mission console">
+      <header class="hp-panel-head">
+        <div class="hp-brand-row">
+          <div class="hp-brand">
+            <div class="hp-brand-mark">HP</div>
+            <div>
+              <div class="hp-brand-name">Mission Console</div>
+              <div class="hp-brand-sub">Plan ops goals without leaving CarePlus</div>
+            </div>
+          </div>
+          <span class="hp-chip">anish</span>
+        </div>
+      </header>
+
+      <div class="hp-steps" aria-hidden="true">
+        <div class="hp-step is-active" data-step="goal">Goal</div>
+        <div class="hp-step" data-step="plan">Plan</div>
+        <div class="hp-step" data-step="view">View</div>
+      </div>
+
+      <div class="hp-panel-body">
+        <div>
+          <div class="hp-field-label">
+            <span>Operational goal</span>
+            <span class="hp-field-hint">[CANDIDATE-anish]</span>
+          </div>
+          <textarea
+            id="goal"
+            rows="4"
+            placeholder="Check ICU bed capacity for tonight"
+            autocomplete="off"
+          ></textarea>
+        </div>
+
+        <div class="hp-actions">
+          <button type="button" id="create-plan">Generate plan</button>
+          <button type="button" id="view-plan">
+            <span class="vp-kicker">Ready</span>
+            <span class="vp-title">Pull up live pipeline</span>
+            <span class="vp-sub">Opens as a bottom workspace over CarePlus</span>
+          </button>
+        </div>
+
+        <div class="hp-status-block" id="status-block" data-kind="">
+          <div class="hp-status-label">Console</div>
+          <p id="status">Describe a goal, then generate a plan.</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div id="hospilot-container" aria-hidden="true">
+    <div class="hp-sheet-scrim" id="pipeline-scrim"></div>
+    <section class="hp-sheet" role="dialog" aria-label="Live pipeline workspace">
+      <div class="hp-sheet-handle" aria-hidden="true"><span></span></div>
+
+      <aside class="hp-inspector">
+        <div class="hp-inspector-brand">Workspace · Hospilot</div>
+        <h2>Live pipeline</h2>
+        <p class="hp-inspector-blurb">
+          CarePlus stays visible above. This sheet docks the planned mission beside an inspector rail.
+        </p>
+
+        <div class="hp-inspector-block">
+          <label>Link state</label>
+          <div class="hp-link-state">
+            <i aria-hidden="true"></i>
+            <span id="pipeline-signal">IDLE</span>
+          </div>
+        </div>
+
+        <div class="hp-inspector-block">
+          <label>Session</label>
+          <code id="pipeline-session">—</code>
+        </div>
+
+        <div class="hp-inspector-block">
+          <label>Goal</label>
+          <p id="pipeline-goal">—</p>
+        </div>
+
+        <div class="hp-inspector-actions">
+          <button type="button" id="close-plan">Close workspace</button>
+        </div>
+      </aside>
+
+      <div class="hp-canvas">
+        <div class="hp-canvas-frame">
+          <div class="hp-canvas-caption">
+            <span>Hospilot canvas</span>
+            <span>iframe handoff</span>
+          </div>
+          <iframe id="hospilot-frame" title="Hospilot dashboard"></iframe>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="widget.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "hospilot-widget-anish",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hospilot Part 1 — widget + live plan viewer (anish)",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}
