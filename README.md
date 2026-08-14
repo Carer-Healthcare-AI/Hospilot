@@ -20,7 +20,7 @@ under time pressure: is a bed actually free, is staffing enough to safely take a
 will the ICU still have capacity if someone deteriorates tonight.
 
 Hospilot is the layer that does that joining for you, continuously, and turns it into
-coordinated action instead of a dashboard you have to interpret yourself:
+coordinated action instead of a report you have to interpret yourself:
 
 - **Ask it, don't query it.** "Can we safely take this patient into the respiratory ward
   tonight?" is a real input — an LLM planner turns a goal like that into a pipeline of the
@@ -39,27 +39,48 @@ coordinated action instead of a dashboard you have to interpret yourself:
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TD
     HIS["Hospital HIS / HMIS\n(your existing system)"]
-    Fabric["Fabric\nFHIR R5 data layer\nno data of its own"]
-    Planner["Planner (LLM)\ngoal → agent pipeline"]
-    Graph["LangGraph pipeline\nagents → sub-agents → tasks"]
-    HITL{{"Human approval\n(pause / resume)"}}
-    CC["Command Center\noperator UI"]
+    Caller["Goal\n(API call)"]
 
-    HIS <-->|"FHIR reads/writes,\nKafka or HTTP"| Fabric
-    Fabric <-->|"live queries,\nqueued writes"| Graph
-    Planner --> Graph
-    Graph -.->|"consequential action"| HITL
-    HITL -.->|"approve / edit"| Graph
-    Graph -->|"results, WebSocket"| CC
-    CC -->|"goal"| Planner
+    subgraph Fabric["Fabric — FHIR R5 data layer"]
+        direction LR
+        Ingest["Ingest\nchange-API · polling · Kafka"]
+        FHIR["FHIR R5 mapping\n(holds no data of its own)"]
+        Ingest --> FHIR
+    end
+
+    subgraph AF["Agentic Framework"]
+        direction LR
+        Planner["Planner (LLM)\ngoal → agent pipeline"]
+        Graph["LangGraph pipeline\nStateGraph, levelled supersteps"]
+        Agents["Agent → sub-agents → tasks\nbed · ER · ICU · pharmacy · OT · …"]
+        Synth["Synthesis\nanswer + proposed writes"]
+        Planner --> Graph --> Agents --> Synth
+    end
+
+    HITL{{"Human approval\n(pause / resume)"}}
+    Redis[("Redis\nsession cache")]
+    PG[("Postgres via Hasura\npersisted state")]
+    Result["Result\n(API response, WebSocket)"]
+
+    HIS <-->|"reads / writes"| FHIR
+    Caller --> Planner
+    FHIR <-->|"live queries,\nqueued writes"| Graph
+    Agents <--> Redis
+    Agents <--> PG
+    Agents -.->|"consequential action"| HITL
+    HITL -.->|"approve / edit"| Agents
+    Synth --> Result
 ```
 
-This repo contains **Fabric** and the **Agentic Framework** — the data layer and the agent
-orchestration engine. The Command Center (the operator dashboard shown above) is currently
-part of the closed-source hosted product, not this repository; everything else in the
-diagram is here and runnable.
+This repo contains **Fabric** and the **Agentic Framework**, end to end and runnable on
+their own. Fabric ingests your HIS data through whichever mode it exposes — a change API,
+polling, or Kafka — and maps it to FHIR R5, never storing clinical data itself. A goal comes
+in over the API, the planner turns it into an agent pipeline, agents read and write through
+Fabric while checking state in Redis/Postgres, and any consequential action pauses for human
+approval before it executes. Results come back the same way the goal came in — how you
+trigger that call and render the result is entirely up to you.
 
 ---
 
@@ -213,8 +234,7 @@ the policy engine — is in [`agentic-framework/README.md`](./agentic-framework/
 - [ ] One-command Docker Compose that includes Postgres + Hasura, so Quick Start has zero
       external prerequisites
 - [ ] Further domain agents — infection control, supply chain
-- [ ] Open-source reference UI for the Command Center
-- [ ] Natural-language Q&A interface over live hospital data, open-sourced
+- [ ] Natural-language Q&A over live hospital data, open-sourced
 - [ ] Multi-agent negotiation for cross-domain conflicts (e.g. bed vs. staffing tradeoffs)
 - [ ] Simulation / what-if mode for testing a proposed action before approving it
 
