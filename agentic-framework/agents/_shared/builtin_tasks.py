@@ -15,11 +15,14 @@ from dataclasses import dataclass, field
 from temporalio import activity
 
 from db.hasura import hasura
+from agents.appointment.activities import APPOINTMENT_TASKS
 
 logger = logging.getLogger("builtin_tasks")
 
 # agent_id -> {task_id: async fn(session_id, ta_results, ctx) -> dict}
-BUILTIN_TASKS: dict[str, dict] = {}
+BUILTIN_TASKS: dict[str, dict] = {
+    "appointment_agent": APPOINTMENT_TASKS,
+}
 
 
 def builtin_task_ids(agent_id: str) -> set[str]:

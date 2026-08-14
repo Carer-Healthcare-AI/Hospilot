@@ -28,6 +28,12 @@ from agents.staff.activities import (
     analyze_staff_workload, create_staff_approval, confirm_staff_recommendation, requested_staff_areas,
     StaffAnalysisInput, StaffApprovalInput, StaffConfirmInput, AreaStaffingInput,
 )
+from agents.discharge.activities import (
+    get_discharge_candidates, get_discharge_records, batch_assess_discharges, create_discharge_approval,
+    confirm_discharge_updates, generate_discharge_summaries, check_notes_completeness,
+    request_missing_docs, check_pending_results,
+    BatchAssessInput, DischargeApprovalInput, DischargeConfirmInput, SummaryGenInput, NotesCheckInput,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +48,7 @@ for _n, _f in list(globals().items()):
         globals()[_n] = _partial(_run_activity, _f)
 
 _ICU_TASKS       = {sa.id: [t.schema() for t in sa.tasks] for sa in SUB_AGENTS.get("icu_agent", [])}
+_DISCHARGE_TASKS = {sa.id: [t.schema() for t in sa.tasks] for sa in SUB_AGENTS.get("discharge_agent", [])}
 
 
 def _enc_token(enc: dict) -> str | None:
@@ -477,3 +484,179 @@ async def run_staff_body(sid: str, ctx: dict) -> dict:
     )
     hitl.await_decision({"kind": "staff_approval", "session_id": sid, "agent_id": base,
                          "action_type": "staff_reallocation", "risk": "medium"})
+
+
+# -- Discharge -----------------------------------------------------------------
+
+async def _discharge_finalize(sid: str, pending: dict, decision: str) -> dict:
+    v = pending["vars"]
+    assessments = v["assessments"]
+    ready = v["ready"]
+
+    if decision != "approved":
+        status = "timeout" if decision == "timeout" else "rejected"
+        out = {"status": status, "assessed": len(assessments), "ready": len(ready)}
+        if status == "timeout":
+            out["error"] = "Approval timed out after 30 min"
+        return out
+
+    ta_results = pending["ta_results"]
+    task_plan = pending["task_plan"]
+    candidates = v["candidates"]
+
+    confirm_result: dict = {}
+    if await should_run_task("ta_confirm_discharge_updates", "sa_discharge_barriers", ta_results, task_plan, sid):
+        confirm_result = await confirm_discharge_updates(DischargeConfirmInput(session_id=sid, assessments=assessments))
+        ta_results["ta_confirm_discharge_updates"] = confirm_result
+
+    ready_ids = {r["admission_id"] for r in ready}
+    ready_admissions = [a for a in candidates if a["id"] in ready_ids]
+
+    if await should_run_task("ta_check_notes_completeness", "sa_discharge_ready", ta_results, task_plan, sid):
+        ta_results["ta_check_notes_completeness"] = await check_notes_completeness(
+            NotesCheckInput(session_id=sid, ready_admissions=ready_admissions))
+
+    if await should_run_task("ta_request_missing_docs", "sa_discharge_ready", ta_results, task_plan, sid):
+        incomplete = (ta_results.get("ta_check_notes_completeness") or {}).get("incomplete_admissions", [])
+        ta_results["ta_request_missing_docs"] = await request_missing_docs(
+            NotesCheckInput(session_id=sid, ready_admissions=incomplete))
+
+    if await should_run_task("ta_check_pending_results", "sa_discharge_ready", ta_results, task_plan, sid):
+        ta_results["ta_check_pending_results"] = await check_pending_results(
+            NotesCheckInput(session_id=sid, ready_admissions=ready_admissions))
+
+    summary_result: dict = {}
+    if await should_run_task("ta_generate_summaries", "sa_discharge_ready", ta_results, task_plan, sid):
+        summary_result = await generate_discharge_summaries(
+            SummaryGenInput(session_id=sid, ready_admissions=ready_admissions))
+        ta_results["ta_generate_summaries"] = summary_result
+
+    _dynamic = await run_dynamic_tasks("discharge_agent", task_plan, ta_results, sid)
+    return {
+        "status": "completed",
+        "assessed": len(assessments), "ready": len(ready), "blocked": len(assessments) - len(ready),
+        "updated": confirm_result.get("confirmed", 0),
+        "summaries_written": summary_result.get("summaries_generated", 0),
+        "details": assessments,
+        **(_dynamic and {"dynamic_tasks": _dynamic} or {}),
+    }
+
+
+async def run_discharge_body(sid: str, ctx: dict) -> dict:
+    base = "discharge_agent"
+    pending = await hitl.load_pending(sid, base)
+    if pending is not None:
+        decision = hitl.await_decision({"kind": "discharge_approval", "session_id": sid, "agent_id": base})
+        await hitl.clear_pending(sid, base)
+        return await _discharge_finalize(sid, pending, decision)
+
+    goal = ctx.get("_goal", "")
+    ta_results: dict = {}
+    _raw_plan = ctx.get("_task_plan")
+    task_plan: dict | None = dict(_raw_plan) if _raw_plan is not None else None
+    if task_plan is not None and goal:
+        seed_planned_slots(task_plan, _DISCHARGE_TASKS)
+
+    sa_order = get_subagent_order(task_plan, ["sa_discharge_ready", "sa_discharge_barriers", "sa_discharge_retrospective"])
+
+    # G21: retrospective path — already-discharged / closed encounters.
+    if "sa_discharge_retrospective" in sa_order and task_plan is not None:
+        await plan_subagent("discharge_agent", "sa_discharge_retrospective", _DISCHARGE_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_discharge_retrospective", task_plan) and await should_run_task("ta_get_discharge_records", "sa_discharge_retrospective", ta_results, task_plan, sid):
+        records = await get_discharge_records(sid)
+        ta_results["ta_get_discharge_records"] = {"records": records, "count": len(records)}
+    if subagent_in_plan("sa_discharge_retrospective", task_plan):
+        records = (ta_results.get("ta_get_discharge_records") or {}).get("records") or []
+        if not records and ta_results.get("ta_get_discharge_records") is not None:
+            return {"status": "completed", "message": "No discharged records found"}
+        if records and await should_run_task("ta_generate_summaries", "sa_discharge_retrospective", ta_results, task_plan, sid):
+            ta_results["ta_generate_summaries"] = await generate_discharge_summaries(
+                SummaryGenInput(session_id=sid, ready_admissions=records))
+        if ta_results.get("ta_get_discharge_records") is not None:
+            return {
+                "status": "completed",
+                "records": len(records),
+                "summaries_generated": (ta_results.get("ta_generate_summaries") or {}).get("summaries_generated", 0),
+            }
+
+    if "sa_discharge_ready" in sa_order and task_plan is not None:
+        await plan_subagent("discharge_agent", "sa_discharge_ready", _DISCHARGE_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_discharge_ready", task_plan) and await should_run_task("ta_get_discharge_candidates", "sa_discharge_ready", ta_results, task_plan, sid):
+        cached = await get_prefetch_cache(GetPrefetchInput(session_id=sid, task_id="ta_get_discharge_candidates"))
+        ta_results["ta_get_discharge_candidates"] = cached if cached else {"candidates": (await get_discharge_candidates(sid)) or []}
+
+    candidates = (ta_results.get("ta_get_discharge_candidates") or {}).get("candidates") or []
+    if not candidates:
+        return {"status": "completed", "message": "No active admissions found"}
+
+    # If a specific patient was identified upstream (patient_verification_agent led this
+    # flow), scope the discharge assessment to THEIR admission(s) -- do NOT re-census the
+    # whole ward. Empty cache (ward-wide / batch sweep goal) -> assess everyone, as before.
+    _bound = await patient.get_cached(sid)
+    if _bound:
+        _tokens = {p.get("patient_token") or p.get("token") for p in _bound}
+        _scoped = [c for c in candidates if c.get("patient_token") in _tokens]
+        if _scoped:
+            candidates = _scoped
+            ta_results["ta_get_discharge_candidates"] = {
+                **(ta_results.get("ta_get_discharge_candidates") or {}),
+                "candidates": candidates,
+            }
+            logger.info("discharge scoped to identified patient(s)  session=%s  n=%d", sid, len(_scoped))
+        else:
+            return {"status": "completed",
+                    "message": "Identified patient is not among active admissions"}
+
+    if subagent_in_plan("sa_discharge_ready", task_plan) and await should_run_task("ta_batch_assess_discharges", "sa_discharge_ready", ta_results, task_plan, sid):
+        icu_ctx = ctx.get("icu_agent", {})
+        icu_vitals = {
+            c["patient_token"]: c["vitals"]
+            for c in (icu_ctx.get("escalation_candidates", []) + icu_ctx.get("step_down_candidates", []))
+            if c.get("patient_token") and c.get("vitals")
+        }
+        enriched = [
+            {**c, "vitals": icu_vitals.get(c["patient_token"])} if c.get("patient_token") in icu_vitals else c
+            for c in candidates
+        ]
+        assessments = await batch_assess_discharges(BatchAssessInput(session_id=sid, admissions=enriched))
+        ta_results["ta_batch_assess_discharges"] = {
+            "assessed": assessments,
+            "ready": sum(1 for a in assessments if a["discharge_ready"]),
+        }
+
+    assessments = (ta_results.get("ta_batch_assess_discharges") or {}).get("assessed") or []
+    ready = [a for a in assessments if a["discharge_ready"]]
+
+    if not ready:
+        return {"status": "completed", "assessed": len(assessments), "ready": 0,
+                "blocked": len(assessments), "details": assessments}
+
+    if "sa_discharge_barriers" not in sa_order:
+        return {"status": "completed", "assessed": len(assessments), "ready": len(ready),
+                "blocked": len(assessments) - len(ready), "details": assessments}
+
+    if task_plan is not None:
+        await plan_subagent("discharge_agent", "sa_discharge_barriers", {}, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_discharge_barriers", task_plan) and await should_run_task("ta_create_discharge_approval", "sa_discharge_barriers", ta_results, task_plan, sid):
+        await create_discharge_approval(DischargeApprovalInput(
+            session_id=sid, ready_ids=[a["admission_id"] for a in ready], all_results=assessments))
+        ta_results["ta_create_discharge_approval"] = {"created": True}
+
+    if not ta_results.get("ta_create_discharge_approval"):
+        return {"status": "completed", "assessed": len(assessments), "ready": len(ready),
+                "blocked": len(assessments) - len(ready), "details": assessments}
+
+    await hitl.save_pending(sid, base, {
+        "ta_results": ta_results, "task_plan": task_plan,
+        "vars": {"assessments": assessments, "ready": ready, "candidates": candidates},
+    })
+    await emit_step_recommendation(
+        sid, agent_id=base, kind="discharge",
+        headline=f"Discharge {len(ready)} patient(s) to free beds",
+        actions=[f"Discharge {len(ready)} patient(s) cleared of barriers"],
+        rationale=(f"{len(ready)} of {len(assessments)} assessed patient(s) are "
+                   f"discharge-ready; the remainder are blocked"),
+        risk="medium",
+    )
+    hitl.await_decision({"kind": "discharge_approval", "session_id": sid, "agent_id": base,
+                         "action_type": "discharge", "risk": "medium"})
