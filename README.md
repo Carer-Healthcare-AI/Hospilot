@@ -68,8 +68,9 @@ diagram is here and runnable.
 - **Natural-language hospital operations queries** — ask a question, get an answer grounded
   in your actual live data, not a canned report.
 - **Autonomous multi-agent workflows** — bed management, ER triage and routing, ICU capacity
-  and step-down planning, staffing/nurse-ratio checks, revenue and billing-gap review, all
-  coordinated as one pipeline when a goal touches more than one domain.
+  and step-down planning, staffing/nurse-ratio checks, pharmacy and lab prioritization, OT
+  scheduling, discharge planning, billing and revenue review, all coordinated as one pipeline
+  when a goal touches more than one domain.
 - **New domain agents** — the agent manifest system (`agents/_shared/manifest.py`) declares
   exactly what data an agent may touch; adding a new one is a scoped, guardrailed addition,
   not a fork of the planner.
@@ -128,6 +129,10 @@ with no Docker at all.
   transport, or a pending order.
 - **Nurse staffing shortfalls** — a shift is short-handed; is the float pool enough, and
   where does it need to go?
+- **Pharmacy bottlenecks** — STAT medications, critical-patient priority, and
+  substitution/availability checks that need to clear before discharge or a next dose.
+- **OT/theatre utilization** — is today's schedule slipping, and where's the delay coming
+  from — staff, equipment, or an emergency case bumping the queue?
 - **Revenue leakage** — claims sitting in a state that's quietly heading toward denial.
 
 ---
@@ -155,15 +160,24 @@ One goal becomes one graph. Every request follows the same path from prompt to a
   SYNTHESIS  →  answer + proposed writes (queued through Fabric)
 ```
 
-**Agent catalog** — five domain agents ship in this cut (`agentic-framework/agents/`):
+**Agent catalog** — fourteen domain agents ship in this cut (`agentic-framework/agents/`):
 
 | Agent | Does |
 |---|---|
 | `bed_agent` | Bed availability, status, ranking, reservations, dirty-bed recovery |
 | `er_agent` | ER queue management, triage scoring, admission and fast-track routing |
-| `icu_agent` | ICU census, ventilator tracking, step-down candidate identification |
-| `revenue_agent` | Billing-gap & leakage review, profitability, denial-risk prediction |
+| `icu_agent` | ICU census, ventilator tracking, transfer ranking, step-down candidate identification |
 | `staff_agent` | Nurse–patient ratios, float-pool availability, shift staffing levels |
+| `discharge_agent` | Discharge readiness, barrier tracking, discharge summary generation |
+| `pharmacy_agent` | Medication prioritization, prescription/dispensing validation, drug availability, controlled-substance checks |
+| `lab_agent` | Sample prioritization, STAT handling, analyzer routing/utilization, turnaround-time tracking |
+| `ot_agent` | OT/theatre scheduling, delay prediction, staff coordination, slot optimization |
+| `housekeeping_agent` | Vacated-bed cleaning dispatch and tracking |
+| `revenue_agent` | Billing-gap & leakage review, profitability, denial-risk prediction |
+| `billing_agent` | Patient invoice lookup and bill generation |
+| `ambulance_agent` | Ambulance assignment and dispatch coordination |
+| `patient_verification_agent` | Incoming-patient identity verification and unknown-patient registration |
+| `appointment_agent` | OPD appointment scheduling, doctor-slot matching, patient reminders/escalation |
 
 Full technical detail — the planner, the sandboxed task-codegen model, checkpointing,
 the policy engine — is in [`agentic-framework/README.md`](./agentic-framework/README.md).
@@ -176,6 +190,8 @@ the policy engine — is in [`agentic-framework/README.md`](./agentic-framework/
 "Are we short-staffed on any shift in the next 12 hours?"
 "Which pending claims have the highest denial risk this week?"
 "If ICU gets one more critical admission tonight, do we have a step-down candidate?"
+"Which patients are discharge-ready but stuck on pending labs or documentation?"
+"Is OT running behind schedule today, and where's the bottleneck?"
 ```
 
 ---
@@ -196,7 +212,7 @@ the policy engine — is in [`agentic-framework/README.md`](./agentic-framework/
 
 - [ ] One-command Docker Compose that includes Postgres + Hasura, so Quick Start has zero
       external prerequisites
-- [ ] Additional domain agents — pharmacy, OT/theatre scheduling, discharge planning
+- [ ] Further domain agents — infection control, supply chain
 - [ ] Open-source reference UI for the Command Center
 - [ ] Natural-language Q&A interface over live hospital data, open-sourced
 - [ ] Multi-agent negotiation for cross-domain conflicts (e.g. bed vs. staffing tradeoffs)
