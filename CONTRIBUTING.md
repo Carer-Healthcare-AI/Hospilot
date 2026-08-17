@@ -33,8 +33,11 @@ An agent is more than a Python module — it needs a **manifest entry**
 (`agents/_shared/manifest.py`) declaring exactly what it's allowed to touch: Redis keys,
 Hasura tables, session-context fields, tool schemas. The guardrail
 (`agents/_shared/guardrail.py`) enforces this at runtime, so a new agent without a manifest
-entry won't be trusted with dynamic task generation. Read an existing agent's manifest
-entry (`bed_agent`'s is a good one to start from) before writing a new one.
+entry won't be trusted with dynamic task generation. Read `housekeeping_agent` first, not
+`bed_agent` — `bed_agent` is the reference port and the most complex agent in the catalog
+(489 lines), while `housekeeping_agent`'s body is six lines and shows the same
+body-function + activities + manifest-entry shape without the noise. See
+[`INTEGRATIONS.md`](./INTEGRATIONS.md#langgraph--writing-a-new-agent) for the excerpt.
 
 ## Adding a new HIS integration
 
@@ -42,6 +45,8 @@ Everything HIS-specific belongs in [Fabric](./fabric), not in the agents — age
 talk to Fabric's stable, FHIR-shaped API. See `fabric/README.md`'s `INTEGRATION_MODE`
 section for the three supported ingest strategies (`change_api`, `polling`, `kafka`) and
 pick whichever matches what the target HIS can actually offer.
+[`INTEGRATIONS.md`](./INTEGRATIONS.md#hishmis-ingest) has the config and the module each
+mode dispatches to.
 
 ## Reporting bugs / proposing features
 

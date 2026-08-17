@@ -84,6 +84,26 @@ trigger that call and render the result is entirely up to you.
 
 ---
 
+## Key Capabilities
+
+- **Multi-Agent Coordination** — the planner wires one goal into a DAG of exactly the
+  domain agents it needs; a goal that touches bed *and* staffing runs as one coordinated
+  pipeline, not two separate lookups you have to reconcile yourself.
+- **Autonomous Workflows** — agents propose the actual operational step — a bed
+  reservation, a staffing reassignment, a billing correction — and execute it once
+  approved, rather than stopping at a summary.
+- **Human-in-the-Loop Approval** — a consequential action pauses the execution graph and
+  durably waits for a decision; it's a real stop in the workflow, not a side-channel
+  notification you could miss.
+- **FHIR-Native Data Access** — every read and write goes live through your existing HIS's
+  own APIs via Fabric's FHIR R5 translation layer; Hospilot never holds a copy of your
+  clinical data.
+
+*Predictive AI, Digital Twin, and Simulation/what-if mode are on the [Roadmap](#roadmap),
+not shipped yet — listed here only once they're real.*
+
+---
+
 ## What you can build
 
 - **Natural-language hospital operations queries** — ask a question, get an answer grounded
@@ -227,12 +247,16 @@ the policy engine — is in [`agentic-framework/README.md`](./agentic-framework/
 | **LLM** | Anthropic Claude, or any OpenAI-compatible endpoint (e.g. local Ollama) |
 | **Deploy** | Docker / Docker Compose |
 
+Real endpoints, config, and code excerpts for each of these — not just names — are in
+[`INTEGRATIONS.md`](./INTEGRATIONS.md).
+
 ---
 
 ## Roadmap
 
 - [ ] One-command Docker Compose that includes Postgres + Hasura, so Quick Start has zero
       external prerequisites
+- [ ] Kubernetes manifests / Helm chart — Docker Compose is the only deploy path today
 - [ ] Further domain agents — infection control, supply chain
 - [ ] Natural-language Q&A over live hospital data, open-sourced
 - [ ] Multi-agent negotiation for cross-domain conflicts (e.g. bed vs. staffing tradeoffs)
