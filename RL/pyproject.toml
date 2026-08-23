@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hospilot-allocation"
+version = "0.1.0"
+description = "HOSPILOT allocation auction — utility scoring, agent budgets, multi-round bidding"
+requires-python = ">=3.11"
+dependencies = [
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# The engine itself needs nothing but PyYAML, and that stays true — the HTTP surface is a
+# wrapper over the same functions the CLI calls, so it is an extra rather than a dependency.
+# Anyone importing `allocation` to score a candidate should not be made to install a web
+# framework to do it.
+api = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+]
+# Semantic query resolution (trigger/llm_matcher.py). Same reasoning as `api`: the token
+# matcher works without it, so nobody scoring a candidate is made to install an LLM SDK.
+llm = [
+    "anthropic>=0.116",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "httpx>=0.27",  # fastapi.testclient
+]
+
+[tool.setuptools.packages.find]
+include = ["allocation*"]
+
+[tool.setuptools.package-data]
+allocation = ["config/*.yaml", "config/rules/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+disallow_any_generics = true

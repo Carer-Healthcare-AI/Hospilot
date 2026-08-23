@@ -1,0 +1,75 @@
+# Ceiling uplift — B.9 interim. RL-Steps section 8.2, formula D.9.
+#
+#     Ceiling = U * (1 + expected_uplift_over_horizon)
+#
+# WHAT THIS IS FOR
+# RL-Steps is explicit that the ceiling sits ABOVE current utility: Ward values the bed at 86
+# now but may bid up to 105, "because deterioration is expected to raise its value over the
+# next two hours". Without an uplift that behaviour cannot appear at all — an agent can never
+# fight for a patient on account of who they are about to become.
+#
+# ⚠ DISABLED BY DEFAULT, AND THAT IS DELIBERATE.
+# RL-Steps states the ceiling should exceed utility but gives NO RULE for computing by how
+# much. The bands below are ours, not the framework's. Enabling them is therefore a
+# DEVIATION from the documents, not compliance with them — D.9's own fallback is Ceiling = U,
+# which is conservative: it can only make an agent bid less than intended, never more.
+#
+# ⚠ THIS CHANGES WHO WINS.
+# The ceiling is maximum willingness to pay. Raising it lets an agent outbid a rival it would
+# otherwise have lost to. Every other unsigned table distorts a score; this one reallocates a
+# bed. It needs clinical sign-off before it is switched on, not after.
+#
+# THE REAL MODEL (B.9) is a retrospective regression — see RL_READINESS section 7.6. Unlike
+# B.10 it is NOT blocked on denial records: the label is our own utility recomputed 4 hours
+# later, so it is self-supervised on vitals and labs we already store.
+
+status: assumed_pending_clinical_signoff
+enabled: true
+
+# ON, as an ASSUMPTION — the same standing as icu_benefit.yaml, units.yaml and costs.yaml,
+# all of which are unsigned and all of which are active. Leaving this one off while those run
+# would mean silently not implementing D.9 at all, which is the larger deviation: RL-Steps is
+# explicit that the ceiling sits above utility, and with uplift = 0 the behaviour its Ward
+# example describes cannot occur.
+#
+# WHAT MAKES THIS ONE DIFFERENT, AND WHY IT STAYS LOUD:
+# every other unsigned table distorts a SCORE, which moves bidders together and usually
+# preserves the ranking. This one raises a single bidder's WILLINGNESS TO PAY, so it can let
+# an agent outbid a rival it would otherwise have lost to. It is the only assumption in the
+# system that can reallocate a bed rather than reprice one. `--no-uplift` reverts to D.9's
+# fallback (Ceiling = U) for comparison, and every run prints which mode it is in.
+
+# The uplift is estimated from the NEWS2 trajectory, the same series that already drives
+# Clinical Benefit's deterioration factor. A rising NEWS2 is the one signal in the data that
+# says "this patient is becoming sicker", which is exactly what the ceiling is meant to price.
+source: news2_slope_bands
+
+# Slope is points of NEWS2 per hour over the 4-hour vitals window.
+#
+#   >= 1.5/h   fast deterioration   +40%   (a 4-point rise over the horizon)
+#   >= 0.75/h  clear deterioration  +25%
+#   >= 0.25/h  drifting             +10%
+#   <  0.25/h  stable or improving    0%
+#
+# Calibration note: RL-Steps' own Ward example is 86 -> 105, an uplift of 22%, on a patient
+# described as "NEWS2 increasing". That lands in the +25% band, which is the single anchor
+# these numbers have. ONE ANCHOR, FOUR BANDS.
+bands:
+  - {min_slope_per_hour: 1.50, uplift: 0.40, label: fast deterioration}
+  - {min_slope_per_hour: 0.75, uplift: 0.25, label: clear deterioration}
+  - {min_slope_per_hour: 0.25, uplift: 0.10, label: drifting}
+  - {min_slope_per_hour: 0.00, uplift: 0.00, label: stable}
+
+# Hard ceiling on the ceiling. Even a catastrophic trajectory cannot more than double the
+# willingness to pay, because the utility itself already rose to reflect the deterioration —
+# the uplift prices what has NOT happened yet, and pricing it above the present is unsound.
+max_uplift: 0.50
+
+# An improving patient does not get a negative uplift. A ceiling below current utility is not
+# defined (the agent already values the bed at U today), and D.9 has no term for it.
+floor_at_zero: true
+
+# Fewer than this many NEWS2 readings in the window -> NO uplift, and the reason recorded.
+# Never a default band: one reading is not a trend, and guessing "stable" about a patient
+# nobody measured twice is the same mistake as scoring an absent factor 0.
+min_readings: 2

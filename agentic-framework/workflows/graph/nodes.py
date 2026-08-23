@@ -57,6 +57,27 @@ async def _dispatch_body(base_id: str, session_id: str, ctx: dict) -> dict:
     return await fn(session_id, ctx)
 
 
+async def _bid_for(base_id: str, session_id: str, ctx: dict) -> dict:
+    """Compute a no-side-effect bid proposal for an agent.
+
+    Calls the agent body's optional ``propose`` hook (AGENT_BID_HOOKS) if it has
+    one; otherwise returns a neutral score so agents that don't bid still play.
+    The bid VALUE is per-agent (a bed agent scores on patient acuity, a revenue
+    agent on $ impact) but the interface is uniform -- this is what lets a single
+    bidding handler work across any flow.
+    """
+    from workflows.graph.agents.registry import AGENT_BID_HOOKS
+
+    hook = AGENT_BID_HOOKS.get(base_id)
+    if hook is None:
+        return {"score": 0.0, "reason": "no_bid_hook"}
+    try:
+        return await hook(session_id, ctx)
+    except Exception as exc:  # noqa: BLE001 -- a bad bid must not crash arbitration
+        logger.warning("bid hook failed  agent=%s  err=%s", base_id, exc)
+        return {"score": 0.0, "reason": f"bid_error: {exc}"}
+
+
 def make_agent_node(cfg: dict) -> "AgentUnit":
     return AgentUnit(cfg)
 
@@ -77,6 +98,30 @@ class AgentUnit:
 
     async def __call__(self, state: dict) -> dict:
         return await self.commit(state)
+
+    async def propose(self, state: dict) -> dict:
+        """Return ``{"score": float, ...}`` for arbitration. No side effects."""
+        if state.get("_failed"):
+            return {"score": 0.0, "reason": "session_failed"}
+        session_id = state["session_id"]
+        run, reason = await should_agent_run(self.cfg, state)
+        if not run:
+            return {"score": 0.0, "reason": reason or "skipped"}
+        ctx = build_ctx(state, self.base, self.cfg)
+        proposal = await _bid_for(self.base, session_id, ctx)
+        # Record the bid in state so the arbiter / observers can see it.
+        return {**proposal, "_bids": {self.node_id: proposal}}
+
+    async def skip(self, state: dict, reason: str) -> dict:
+        """Skip this unit (e.g. it lost a bid). Reuses the branch_skipped contract."""
+        session_id = state["session_id"]
+        logger.info("unit skipped  agent=%s  reason=%s  session=%s", self.node_id, reason, session_id)
+        await broadcast(session_id, {
+            "type":      "branch_skipped",
+            "agent_id":  self.node_id,
+            "condition": reason,
+        })
+        return {"_skipped": {self.node_id: reason}}
 
     async def commit(self, state: dict) -> dict:
         node_id = self.node_id

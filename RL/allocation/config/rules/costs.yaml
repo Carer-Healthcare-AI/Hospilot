@@ -1,0 +1,32 @@
+# Cost table (B.6) and revenue rates — Financial Impact, cap 10.
+#
+# STATUS: UNSIGNED for costs. Finance provides. Avoided Cost carries weight .30 of the
+# Financial component and has no source in the schema at all.
+#
+# Financial is deliberately the smallest positive cap in the framework: "I would explicitly
+# keep this weight low so that an expensive elective case cannot overpower a much more
+# clinically urgent patient" (RL-Steps section 8). Appendix C.6 notes it is nonetheless doing
+# visible work — 10.0 is OT's LARGEST positive term, against a Clinical Benefit of 7.5.
+# Worth watching once caps are fitted.
+
+status: costs_assumed_pending_finance
+currency: INR
+
+# --- Avoided cost (B.6) — no source exists ---------------------------------------------
+avoided_cost:
+  ot_cancellation: 95000.0      # [assumption] Appendix C.0
+  ed_boarding: 8000.0           # [assumption] Appendix C.0
+  emergency_escalation: null    # not even assumed
+
+# --- Revenue — contract_service_rates is live, these are the fallbacks -----------------
+icu_day_rate:
+  medical: 18000.0              # contract_service_rates when available
+  ward_medical: 15000.0
+  cardiac_package: 340000.0     # whole-package rate, not a day rate
+
+# Expected LOS: prefer ipd_admissions.expected_discharge_at - admitted_at (live).
+# These are used only when that is null.
+fallback_expected_los_days:
+  er: 3.5
+  ot: 1.0
+  ward: 2.5

@@ -1,0 +1,27 @@
+# Shift label -> clock time. BUILD_SPEC F-17.
+#
+# BLOCKING for the per-shift budget recompute. hospilot.staff_roster has `shift` as a LABEL
+# (alongside area, role, headcount, assigned_load, load_per_staff) and no start/end
+# timestamps. AGENT_BUDGET section 12.1 lists shift boundaries as available; they are not.
+#
+# Budget accrual, renewal, and the 8-hour agent planning horizon all key off these
+# boundaries, so the mapping below has to be confirmed against how the hospital actually
+# rosters. RL-Steps section 20 gives 07:00-15:00 / 15:00-23:00 / 23:00-07:00.
+
+status: assumed_pending_operations_confirmation
+timezone: Asia/Kolkata
+
+shifts:
+  - {label: morning, start: "07:00", end: "15:00"}
+  - {label: evening, start: "15:00", end: "23:00"}
+  - {label: night,   start: "23:00", end: "07:00"}
+
+# Values seen in staff_roster.shift mapped onto the labels above. Unmatched values raise
+# rather than silently defaulting — a wrong shift boundary silently corrupts every budget row.
+label_aliases:
+  morning: [morning, day, "a", "1", first]
+  evening: [evening, afternoon, "b", "2", second]
+  night:   [night, "c", "3", third]
+
+# Which staff_roster.role values count as nurses for the nursing-capacity factor.
+nurse_roles: [nurse, staff_nurse, rn, sister]

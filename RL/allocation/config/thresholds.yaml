@@ -1,0 +1,117 @@
+# Scoring thresholds — RL_STEPS_END_TO_END.md D.10 and Appendix C.0.
+#
+# These are THRESHOLDS, NOT WEIGHTS. Revising them is cheap and does not touch the framework;
+# revising anything in a caps table does. Keep that distinction — it is the reason this is a
+# separate file.
+#
+# Provenance marker on each: [config] = our choice, tunable. Every one of them is a first
+# pass.
+
+vitals:
+  slope_window_hours: 4.0       # [config] earliest reading inside the window is the baseline
+  lab_freshness_hours: 24.0     # [config] labs older than this are dropped, not zeroed
+
+clinical_benefit:
+  news2_slope_cap_per_hour: 4.0 # [config] 4 NEWS2 points/hour is rapid deterioration
+  spo2_normal: 96.0             # [config]
+  spo2_floor: 85.0              # [config] span = normal - floor = 11
+  resp_rate_base: 20.0          # [config]
+  resp_rate_span: 10.0          # [config]
+  oxygen_severity_spo2_weight: 0.6
+  oxygen_severity_rr_weight: 0.4
+  age_base: 40.0                # [config] unusable until patients has a DOB
+  age_span: 45.0                # [config]
+
+urgency:
+  spo2_fall_cap_per_hour: 3.0   # [config] 3%/h fall scores maximum
+  pulse_slope_cap_per_hour: 20.0
+  bp_slope_cap_per_hour: 15.0
+  news2_max: 20.0               # standard NEWS2 range
+  time_to_critical_horizon_hours: 4.0
+
+waiting:
+  delay_window_minutes: 240.0   # [config] DelayFactor = 1 + clamp(elapsed/240) in [1, 2]
+  delay_factor_max: 2.0         # divisor returning the product to [0, 1]
+  severity_bands:               # NEWS2 -> severity if deterioration occurs
+    - {min_news2: 7, score: 1.0}
+    - {min_news2: 5, score: 0.7}
+    - {min_news2: 3, score: 0.4}
+    - {min_news2: 0, score: 0.2}
+
+throughput:
+  nursing_saturation: 8.0       # [config] pending tasks per nurse at which the score saturates
+  boarding_cap: 10.0            # [config]
+  discharge_cap: 5.0            # [config]
+  unit_weight:                  # bed release by the unit the patient currently occupies
+    icu: 1.0
+    hdu: 1.0
+    resus: 1.0
+    theatre: 0.8                # [our addition] D.4's table has no entry for a patient in
+                                # theatre; Appendix C.3 uses 0.800 without deriving it
+    ward: 0.6
+    none: 0.3
+
+operational:
+  cases_at_risk_cap: 5.0        # [config] OT: following cases threatened by a cancellation
+
+financial:
+  p95_revenue: 150000.0         # [config] 90-day percentile over claims.claim_amount
+  p95_avoided_cost: 40000.0     # [config] no cost table exists — B.6
+
+organ_risk_bands:               # mini-SOFA from lab_results. Absent analytes are dropped.
+  lactate:
+    - {min: 4.0, score: 1.00}
+    - {min: 2.0, score: 0.60}
+    - {min: 0.0, score: 0.00}
+  creatinine:
+    - {min: 3.5, score: 1.00}
+    - {min: 2.0, score: 0.66}
+    - {min: 1.2, score: 0.33}
+    - {min: 0.0, score: 0.00}
+  bilirubin:
+    - {min: 6.0, score: 1.00}
+    - {min: 2.0, score: 0.50}
+    - {min: 0.0, score: 0.00}
+  platelets:                    # inverted: lower is worse
+    - {max: 50, score: 1.00}
+    - {max: 100, score: 0.66}
+    - {max: 150, score: 0.33}
+    - {max: null, score: 0.00}
+
+news2_bands:                    # standard NEWS2. 7 parameters; on_oxygen is absent (B.1).
+  respiratory_rate:
+    - {max: 8, score: 3}
+    - {max: 11, score: 1}
+    - {max: 20, score: 0}
+    - {max: 24, score: 2}
+    - {max: null, score: 3}
+  spo2:
+    - {max: 91, score: 3}
+    - {max: 93, score: 2}
+    - {max: 95, score: 1}
+    - {max: null, score: 0}
+  on_oxygen:
+    true_score: 2
+    false_score: 0
+  bp_systolic:
+    - {max: 90, score: 3}
+    - {max: 100, score: 2}
+    - {max: 110, score: 1}
+    - {max: 219, score: 0}
+    - {max: null, score: 3}
+  pulse:
+    - {max: 40, score: 3}
+    - {max: 50, score: 1}
+    - {max: 90, score: 0}
+    - {max: 110, score: 1}
+    - {max: 130, score: 2}
+    - {max: null, score: 3}
+  gcs:                          # consciousness: anything below fully alert scores 3
+    - {max: 14, score: 3}
+    - {max: null, score: 0}
+  temperature:
+    - {max: 35.0, score: 3}
+    - {max: 36.0, score: 1}
+    - {max: 38.0, score: 0}
+    - {max: 39.0, score: 1}
+    - {max: null, score: 2}

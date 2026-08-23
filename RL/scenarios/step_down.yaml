@@ -1,0 +1,148 @@
+# The same three patients, auctioned two different beds.
+#
+# Run it both ways:
+#     python -m allocation --scenario scenarios/step_down.yaml --query "one limited ICU bed"
+#     python -m allocation --scenario scenarios/step_down.yaml --query "a ward bed is free"
+#
+# WHAT IT DEMONSTRATES (Step 12 — the unit-scoped read)
+# `DataSource.hospital_state` takes the unit of the bed being auctioned, so these two runs
+# price off two different occupancies out of one file: the ICU at 20/20 and the ward at 24/40.
+# Before Step 12 both runs read the ICU's 20/20, and every non-ICU auction in the engine was
+# priced off a full ICU regardless of how busy the unit on offer actually was.
+#
+# Two rows move immediately:
+#   ingest      "ICU occupancy 20/20 = 100%"  ->  "WARD occupancy 24/40 = 60%"
+#   close       reserve price 97.9            ->  52.8
+#
+# And Ward-Patient-C goes from 48.6 to 56.4. Five components move; only one of them is Step 12:
+#
+#     component            ICU run   ward run   delta   cause
+#     alternative           -14.00      -0.00   +14.0   Step 8 — ward is the bottom of the
+#                                                       ladder, so HDU and PACU are both
+#                                                       escalations and neither is a fallback
+#     resource_stress        -8.20      -5.65    +2.6   STEP 12 — the ward is 60% full, and
+#                                                       until now this read the ICU's 100%
+#     clinical_benefit       21.65      16.14    -5.5   C-3 — no ward benefit table, so the
+#                                                       factor is absent; coverage 90% -> 65%
+#     throughput             16.66      14.66    -2.0   a ward bed frees less downstream
+#     financial               4.60       3.40    -1.2   ward day rate, not the ICU's
+#
+# Read the -5.5 as the deliverable it is: the ward's benefit question ("is a ward bed
+# *sufficient*?") is undefined, so the engine drops the factor and pays for it in visible
+# coverage rather than guessing. C-1 and C-2 are in this run too and are not visible: the
+# ward's caps table and budget pool are verbatim copies of the ICU's, announced by
+# `Config.unsigned` and by `GET /config`, not by any number here.
+#
+# One more thing the ward run makes visible only by its absence. Scarcity, contention AND the
+# reserve all begin at an occupancy of 0.85, and at 60% the ward is below all three: scarcity
+# reads 1.00 and contention its floor. A 40-bed ward recovers a usable gradient as it fills
+# (39/40 -> scarcity 1.25), so the onset is defensible here. It is not defensible on a small
+# unit: 0.85 of resus's 6 beds is 5.1, so the whole 0.85-1.00 band falls between its 5th bed
+# and its 6th, and a resus down to one free bed still scores as unstressed. That is C-9, and
+# it became reachable only when this step made each auction read its own unit.
+#
+# TWO UNITS, ONE HOSPITAL. `boarding_count` and `lwbs_risk` sit at the top level because they
+# describe the ED's queue, which is the same fact whichever bed is being auctioned. Everything
+# else is per unit — `active_isolation_cases` is divided by *that* unit's bed count, and the
+# forecasts are that unit's demand and that unit's discharges. A per-unit key left at the top
+# level is refused by name rather than quietly shared.
+#
+# TIMES ARE RELATIVE to the moment the auction opens. Absolute timestamps rot: the freshness
+# windows (4 h vitals, 24 h labs) are measured from now.
+
+description: One file, two units — the same patients priced against ICU beds and ward beds
+
+hospital:
+  boarding_count: 7             # /er/boarding — the ED's queue, not a property of either unit
+  lwbs_risk: 0.42               # /er/lwbs — likewise
+  units:
+    - unit: icu
+      unit_total_beds: 20
+      unit_occupied_beds: 20    # 1.000 — Appendix C.1
+      predicted_demand_4h: 4.0
+      expected_discharges_4h: 1.0
+      active_isolation_cases: 2 # 2 of 20 = 0.100
+    - unit: ward
+      unit_total_beds: 40
+      unit_occupied_beds: 24    # 0.600
+      predicted_demand_4h: 5.0
+      expected_discharges_4h: 6.0
+      active_isolation_cases: 3 # 3 of 40 = 0.075
+
+candidates:
+  # -- ER · 58 M, septic shock, boarding 55 minutes ------------------------------------
+  - candidate_id: ER-Patient-A
+    agent: er
+    arrived_at: -55m
+    current_unit: resus
+    condition_category: septic_shock
+    severity_band: pressors_reversible_source
+    needs: [ventilation, vasopressors, one_to_one_nursing, continuous_monitoring]
+    pending_nursing_tasks: 14
+    ward_nurses: 6
+    expected_los_days: 3.5
+    icu_day_rate: 18000
+    best_alternative_unit: ED Resus
+    vitals:
+      - {at: -120m, temperature: 38.2, pulse: 96,  bp_systolic: 104, spo2: 95, respiratory_rate: 22, gcs: 15, on_oxygen: true}
+      - {at: -60m,  temperature: 38.4, pulse: 108, bp_systolic: 94,  spo2: 94, respiratory_rate: 24, gcs: 15, on_oxygen: true, is_critical: true}
+      - {at: -5m,   temperature: 38.6, pulse: 118, bp_systolic: 86,  spo2: 93, respiratory_rate: 26, gcs: 14, on_oxygen: true, is_critical: true}
+    labs:
+      - {test_name: lactate,    result_value: 4.8, at: -30m, unit: mmol/L,  flag: H}
+      - {test_name: creatinine, result_value: 2.4, at: -30m, unit: mg/dL,   flag: H}
+      - {test_name: bilirubin,  result_value: 1.8, at: -30m, unit: mg/dL}
+      - {test_name: platelets,  result_value: 88,  at: -30m, unit: 10^3/uL, flag: L}
+    orders:
+      - {medication_name: Noradrenaline, generic_name: norepinephrine, route: IV, status: active, at: -75m}
+      - {medication_name: Oxygen, generic_name: oxygen, route: inhalation, status: active, at: -130m}
+
+  # -- OT · 65 M, cardiac bypass, intraoperative ---------------------------------------
+  - candidate_id: OT-Patient-B
+    agent: ot
+    arrived_at: -10m
+    current_unit: theatre
+    condition_category: post_op_cardiac
+    severity_band: routine
+    needs: [ventilation, one_to_one_nursing, continuous_monitoring]
+    pending_nursing_tasks: 6
+    ward_nurses: 5
+    ot_cases_at_risk: 3
+    expected_los_days: 1.0
+    icu_day_rate: 340000        # cardiac package rate, not a day rate
+    best_alternative_unit: PACU
+    pacu_capacity_probability: 0.35
+    vitals:
+      # gcs deliberately absent — anaesthetised, so consciousness is not assessable.
+      - {at: -90m, temperature: 36.2, pulse: 72, bp_systolic: 112, spo2: 99, respiratory_rate: 12, on_oxygen: true}
+      - {at: -10m, temperature: 36.4, pulse: 78, bp_systolic: 118, spo2: 98, respiratory_rate: 14, on_oxygen: true}
+    labs:
+      - {test_name: lactate,    result_value: 1.4, at: -40m, unit: mmol/L}
+      - {test_name: creatinine, result_value: 1.0, at: -40m, unit: mg/dL}
+      - {test_name: bilirubin,  result_value: 0.9, at: -40m, unit: mg/dL}
+      - {test_name: platelets,  result_value: 210, at: -40m, unit: 10^3/uL}
+
+  # -- Ward · 72 F, pneumonia, NEWS2 rising --------------------------------------------
+  # `alternative_units` lists every rung this patient could go to, so Step 8 can pick the best
+  # one BELOW the unit being auctioned. In the ICU run HDU is a real de-escalation and costs
+  # points; in the ward run every entry is an escalation and none does.
+  - candidate_id: Ward-Patient-C
+    agent: ward
+    arrived_at: -80m
+    current_unit: ward
+    condition_category: pneumonia
+    severity_band: progressive
+    needs: [continuous_monitoring]
+    pending_nursing_tasks: 22
+    ward_nurses: 4
+    expected_los_days: 2.5
+    icu_day_rate: 15000
+    best_alternative_unit: HDU
+    alternative_units: [HDU, PACU]
+    vitals:
+      - {at: -150m, temperature: 38.0, pulse: 98,  bp_systolic: 112, spo2: 93, respiratory_rate: 22, gcs: 15, on_oxygen: true}
+      - {at: -10m,  temperature: 38.2, pulse: 104, bp_systolic: 108, spo2: 92, respiratory_rate: 24, gcs: 15, on_oxygen: true}
+    labs:
+      - {test_name: lactate,    result_value: 2.2, at: -105m, unit: mmol/L}
+      - {test_name: creatinine, result_value: 1.4, at: -105m, unit: mg/dL}
+      - {test_name: bilirubin,  result_value: 0.8, at: -105m, unit: mg/dL}
+      - {test_name: platelets,  result_value: 165, at: -105m, unit: 10^3/uL}

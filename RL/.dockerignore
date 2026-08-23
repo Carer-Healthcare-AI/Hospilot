@@ -1,0 +1,38 @@
+# Everything the build does not need. Each line is also a line that cannot leak into a
+# published image by accident.
+
+.git
+.gitignore
+.claude
+.venv
+venv
+env
+
+__pycache__
+**/__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+.coverage
+
+# Tests run in CI against the source tree, not inside the image. Shipping them would also
+# ship the fixture expectations, which are the closest thing here to a specification leak.
+tests
+
+# The normative documents. They are the reason the code looks the way it does and they do not
+# belong on a public host.
+RL-Steps.md
+RL_STEPS_END_TO_END.md
+AGENT_BUDGET.md
+BUILD_SPEC.md
+RL_READINESS.md
+
+# Migrations touch a hospital schema. Nothing in the API runs them.
+db
+
+Dockerfile
+.dockerignore
+docker-compose.yml

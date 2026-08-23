@@ -26,10 +26,24 @@ from langgraph.graph import StateGraph, START, END
 from workflows.graph.nodes import make_agent_node
 from workflows.graph.state import SessionState
 from workflows.graph.synthesis import synthesise_node
+from workflows.strategies import get_handler, default_strategy_id
 
 logger = logging.getLogger(__name__)
 
 _SYNTH = "__synthesise__"
+
+
+def _make_level_node(units: list, handler):
+    """Wrap one execution level so the chosen strategy handler drives its units.
+
+    Returns a single LangGraph node that hands the level's AgentUnits to the
+    strategy (workflows.strategies). For ``common_goal`` this awaits-all-and-merges
+    -- behaviourally identical to wiring the units as individual nodes -- but it
+    lets ``bidding`` (or any future strategy) arbitrate the level as a unit.
+    """
+    async def level_node(state: dict) -> dict:
+        return await handler(units, state)
+    return level_node
 
 
 def _safe(aid: str) -> str:
@@ -111,14 +125,22 @@ def _plan_levels(agents: list[dict], edges: list[dict]) -> tuple[list[list[str]]
 def build_session_graph(pipeline: dict, checkpointer):
     """Compile a per-session StateGraph from a pipeline dict (agents + edges).
 
-    One graph node per agent, bipartite-wired between topological levels: every
-    node in level k -> every node in level k+1, so a whole level completes in one
-    LangGraph superstep (the BSP barrier). The flow is exactly what the planner
-    (LLM) emits -- there is no coordination/arbitration layer.
+    The pipeline's ``strategy`` (chosen by the planner from workflows.strategies'
+    config) decides how each execution level coordinates. ``common_goal`` (the
+    default) keeps the original per-agent topology -- one graph node per agent,
+    bipartite-wired between topological levels: every node in level k -> every
+    node in level k+1, so a whole level completes in one LangGraph superstep (the
+    BSP barrier) -- so existing sessions and checkpoints are byte-for-byte
+    unchanged. Any other strategy collapses each level into a single
+    strategy-driven level node that arbitrates that level's agents.
     """
     agents = pipeline.get("agents", [])
     edges = pipeline.get("edges", [])
     levels, cfgs = _plan_levels(agents, edges)
+
+    strategy_id = pipeline.get("strategy") or default_strategy_id()
+    handler = get_handler(strategy_id)
+    use_default_topology = strategy_id == default_strategy_id()
 
     g = StateGraph(SessionState)
     g.add_node(_SYNTH, synthesise_node)
@@ -128,20 +150,36 @@ def build_session_graph(pipeline: dict, checkpointer):
         g.add_edge(_SYNTH, END)
         return g.compile(checkpointer=checkpointer)
 
-    # One node per agent, bipartite barrier between levels.
-    for aid, cfg in cfgs.items():
-        g.add_node(_safe(aid), make_agent_node(cfg))
-    for aid in levels[0]:
-        g.add_edge(START, _safe(aid))
-    for k in range(len(levels) - 1):
-        for src in levels[k]:
-            for tgt in levels[k + 1]:
-                g.add_edge(_safe(src), _safe(tgt))
-    for aid in levels[-1]:
-        g.add_edge(_safe(aid), _SYNTH)
+    if use_default_topology:
+        # -- Unchanged path: one node per agent, bipartite barrier between levels.
+        for aid, cfg in cfgs.items():
+            g.add_node(_safe(aid), make_agent_node(cfg))
+        for aid in levels[0]:
+            g.add_edge(START, _safe(aid))
+        for k in range(len(levels) - 1):
+            for src in levels[k]:
+                for tgt in levels[k + 1]:
+                    g.add_edge(_safe(src), _safe(tgt))
+        for aid in levels[-1]:
+            g.add_edge(_safe(aid), _SYNTH)
+    else:
+        # -- Strategy path: collapse each level into one strategy-driven node.
+        # The level node hands the level's AgentUnits to the handler, which owns
+        # the run loop (commit-all / bid-and-arbitrate / ...). Levels are chained
+        # sequentially -- the same BSP barrier, now one node per level.
+        level_node_ids: list[str] = []
+        for k, level in enumerate(levels):
+            units = [make_agent_node(cfgs[aid]) for aid in level]
+            lid = f"__level_{k}__"
+            g.add_node(lid, _make_level_node(units, handler))
+            level_node_ids.append(lid)
+        g.add_edge(START, level_node_ids[0])
+        for k in range(len(level_node_ids) - 1):
+            g.add_edge(level_node_ids[k], level_node_ids[k + 1])
+        g.add_edge(level_node_ids[-1], _SYNTH)
 
     g.add_edge(_SYNTH, END)
 
     order_str = " -> ".join("|".join(lvl) for lvl in levels)
-    logger.info("session graph built  levels=[%s]", order_str)
+    logger.info("session graph built  strategy=%s  levels=[%s]", strategy_id, order_str)
     return g.compile(checkpointer=checkpointer)

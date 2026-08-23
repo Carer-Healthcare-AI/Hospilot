@@ -1,0 +1,144 @@
+# Auction mechanics — RL-Steps sections 1, 3, 6, 17.
+#
+# First price, hidden maxima, RL bidding from round 1, no hold-back mode. Agents SEE the
+# leading bid: section 14 has OT reasoning over a win-probability curve, which requires
+# observing the leader.
+
+rounds:
+  # max_rounds, round_seconds and allocation_horizon_hours are NOT here. They live on the
+  # resource profile (profiles/icu_bed.py), because they are properties of what is being
+  # auctioned — a ventilator auction has its own cadence — and a value in both places would
+  # be two sources of truth with no way to tell which one ran. They were duplicated here
+  # until it was noticed that nothing read them; editing this file to get more rounds did
+  # nothing at all. Override per run with `--rounds`.
+  #
+  # Round 1 is SEALED. RL-Steps section 10: "ER knows: Current highest competition unknown".
+  # Section 9 presents all three round-1 bids as simultaneous, with no agent reacting to
+  # another. From round 2 the auction is open — section 13 has ER reading "highest opponent
+  # = 75" and section 14 has OT reading ER's NEW bid of 101 in the same round.
+  sealed_first_round: true
+
+# Utility TTL — expiry means RECALCULATE, not re-award. Utility may rise or fall.
+# Driven off the change_queue CDC feed, not polling.
+ttl_minutes:
+  er: 10                        # patient physiology changes quickly
+  ot: 20                        # surgical schedule changes relatively slowly
+  ward: 15                      # deterioration may accelerate
+  icu: 10                       # ICU patient condition can change quickly
+
+trigger:
+  # auction_key = resource_type:resource_id:floor(predicted_free_at / bucket)
+  # so a re-firing discharge prediction cannot open two auctions on one bed.
+  auction_key_bucket_minutes: 15
+  bed_eta_cleaning_minutes: 45  # [assumption] agents/bed/prediction_activities.py:16,
+                                # "not tracked in DB". EVERY timing claim inherits its error.
+
+reserve:
+  # RL-Steps section 17: "the resource manager can require a minimum final commitment",
+  # worked example uses 110 with no rule given. Scarcity-based, our formulation.
+  #
+  # reserve = highest_ceiling x clamp(min + (max - min) x occ_stress)
+  # At 100% occupancy and a highest ceiling of 171 this gives 111, against section 17's
+  # asserted 110. THAT IS ONE DATA POINT FITTED WITH TWO PARAMETERS — it is monotone in
+  # scarcity, which is all section 17 actually specifies. In the section 18 worked example
+  # the reserve never binds: ER closes at 118, well above it.
+  enabled: true
+  policy: scarcity_scaled       # [our choice] no rule exists in the framework
+  min_fraction: 0.35            # [our fit]
+  max_fraction: 0.65            # [our fit]
+
+# --- Heuristic bidding policy ----------------------------------------------------------
+# The deterministic policy that ships first and stays as the regression baseline. It emits
+# alpha, never a point value: Increment = alpha x (Ceiling - CurrentBid), section 6.
+#
+# There is no trained network yet, and END_TO_END section 5 states "there is no non-RL mode
+# in this design" — so running on this is a TEMPORARY DEVIATION with a closing plan, not a
+# design change. It is also the data generator: nothing can be trained until auctions have
+# been logged, and these are the auctions.
+policy:
+  heuristic:
+    # RL-Steps section 9's published round-1 percentages: ER 63%, OT 64%, Ward 64%.
+    # A single learned value replaces the per-agent table once a policy is trained.
+    opening_alpha:
+      default: 0.63
+      er: 0.63
+      ot: 0.64
+      ward: 0.64
+    # Section 13: ER leads at 85 against 75, ceiling 148, and raises by only a quarter of
+    # its headroom. "It exposes only enough priority to establish leadership."
+    lead_alpha: 0.25
+    # Section 14: OT must jump a leader at 101 from 75 within a ceiling of 112, and bids 105.
+    # alpha is DERIVED from what overtaking costs: (highest - mine + margin) / headroom.
+    overtake_margin: 4.0        # [our fit] 4 points reproduces section 14's alpha of 0.82
+
+tie_breaker:
+  # RL-Steps section 1. Derived from the utility, not a separate input.
+  - urgency
+  - waiting_time
+
+# BUILD_SPEC F-13 — the safety layer is marked "unspecified in RL-Steps" and overrides the
+# auction, so it cannot be inferred from the auction's own logic.
+#
+# ############################################################################################
+# #  PROVISIONAL. NOT CLINICALLY SIGNED OFF. WRITTEN BY ENGINEERING TO UNBLOCK TESTING.      #
+# #                                                                                          #
+# #  `safety_status: provisional` means these rules ARE enforced but NO clinician has        #
+# #  approved them. Every run under this status prints a warning and stamps the audit.       #
+# #  A clinical safety officer should review each entry, correct or replace it, add whatever #
+# #  is missing, and only then set `safety_status: signed_off`.                              #
+# #                                                                                          #
+# #  Replacing these is expected and easy: edit the entries below. Adding a NEW rule also    #
+# #  needs an evaluator in auction/guards.py or rl/pilot.py — an undeclared rule id is       #
+# #  REFUSED at load rather than ignored, so nothing can be listed here and quietly not      #
+# #  enforced.                                                                               #
+# ############################################################################################
+safety_constraints:
+  # ------------------------------------------------------------------------------------
+  - id: never_abandon_when_planned_exit_available
+    rule: never_abandon_when_planned_exit_available
+    enforced_by: policy_gate
+    provenance: provisional_engineering
+    # NO FREE PARAMETER — this is a logical rule, not a threshold, which is why it is the
+    # safest of the three to have written without clinical input. If any exit that arranges
+    # something is available (an alternative unit, a predicted release, a re-entry), then
+    # leaving the patient with no plan at all is forbidden.
+    #
+    # Not hypothetical: the first trained policy chose WITHDRAW_UNPLANNED six times with
+    # RE_ENTER_LATER available on every one, scoring at or below zero each time.
+    basis: >
+      An unplanned withdrawal is the only action that arranges nothing. Where an action that
+      arranges something is available, taking the one that does not cannot be justified.
+
+  # ------------------------------------------------------------------------------------
+  - id: never_abandon_at_or_above_news2
+    rule: never_abandon_at_or_above_news2
+    threshold: 7.0
+    enforced_by: policy_gate
+    provenance: provisional_engineering
+    # ⚠ THE ONE NUMBER HERE THAT NEEDS A CLINICIAN. 7 is taken from a published scale, not
+    # from any local validation, and the right value for THIS hospital and THIS decision may
+    # differ. Review this first.
+    basis: >
+      NEWS2 (Royal College of Physicians, 2017) places a score of 7 or more in its high-risk
+      band, for which the recommended response is emergency clinical assessment. Used here as
+      the line below which no patient may be left without an onward plan. This is a reading of
+      a published scale by engineers, NOT a clinical determination for this service.
+
+  # ------------------------------------------------------------------------------------
+  - id: bid_within_ceiling
+    rule: bid_within_ceiling
+    enforced_by: auction_guard
+    provenance: provisional_engineering
+    # Already enforced mechanically by guards.clamp. Declared so that a safety audit reads as
+    # a complete list rather than requiring the reader to know which constraints live where.
+    basis: >
+      A bid above the utility ceiling would pay more for a bed than the patient's own scored
+      benefit justifies. Enforced in auction/guards.py clamp() for every policy alike.
+
+# undeclared | provisional | signed_off
+#   undeclared  — nothing enforced; a learned policy may not act (it may still shadow)
+#   provisional — enforced, but by engineering judgement; every run warns
+#   signed_off  — reviewed and approved by someone with clinical standing
+safety_status: provisional
+safety_signed_off_by: ""
+safety_reviewed_at: ""

@@ -1,0 +1,53 @@
+{
+  "_comment": "Example body for POST /auction. Two patients competing for one ICU bed. Times are relative to the auction ('-20m' = 20 minutes ago), so this file does not go stale. Requires an instance started with ALLOCATION_API_KEY.",
+
+  "hospital": {
+    "unit": "icu",
+    "unit_total_beds": 20,
+    "unit_occupied_beds": 19,
+    "expected_discharges_4h": 1,
+    "boarding_count": 8,
+    "active_isolation_cases": 2
+  },
+
+  "candidates": [
+    {
+      "candidate_id": "MY-ER-1",
+      "agent": "er",
+      "arrived_at": "-3h",
+      "condition_category": "sepsis",
+      "severity_band": "severe",
+      "needs": ["vasopressors"],
+      "vitals": [
+        {"at": "-90m", "respiratory_rate": 22, "spo2": 94, "bp_systolic": 108,
+         "pulse": 105, "temperature": 38.4, "gcs": 15},
+        {"at": "-20m", "respiratory_rate": 30, "spo2": 89, "bp_systolic": 88,
+         "pulse": 128, "temperature": 39.1, "gcs": 13}
+      ],
+      "labs": [
+        {"test_name": "lactate", "result_value": 4.6, "at": "-40m"},
+        {"test_name": "creatinine", "result_value": 2.1, "at": "-40m"}
+      ],
+      "orders": [
+        {"medication_name": "noradrenaline", "at": "-25m"}
+      ]
+    },
+    {
+      "candidate_id": "MY-WARD-1",
+      "agent": "ward",
+      "arrived_at": "-9h",
+      "condition_category": "pneumonia",
+      "severity_band": "moderate",
+      "current_unit": "ward-3",
+      "vitals": [
+        {"at": "-80m", "respiratory_rate": 20, "spo2": 95, "bp_systolic": 122,
+         "pulse": 92, "temperature": 37.6, "gcs": 15},
+        {"at": "-15m", "respiratory_rate": 21, "spo2": 95, "bp_systolic": 120,
+         "pulse": 90, "temperature": 37.5, "gcs": 15}
+      ],
+      "labs": [
+        {"test_name": "lactate", "result_value": 1.4, "at": "-60m"}
+      ]
+    }
+  ]
+}

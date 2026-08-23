@@ -716,3 +716,213 @@ UPDATE hospilot_app.advisory_rules
 SET definition = jsonb_set(definition, '{condition,params}', COALESCE(params, '{}'::jsonb), true)
 WHERE definition ? 'condition' AND definition->'condition' ? 'handler';
 ALTER TABLE hospilot_app.advisory_rules DROP COLUMN IF EXISTS params;
+
+-- ============================================================================
+-- RL bed-allocation auction schema (ported from hospilot-internal db/init/tenant_template.sql
+-- lines 749-953; mirrors migrations 123/124/126/127). Self-contained: no FK into hospilot.*.
+-- ============================================================================
+-- allocation schema — RL bed-allocation auction engine (per-tenant).
+-- Keep in sync with db/migrations/123_allocation_forecast_retention.sql,
+-- 124_allocation_auction_tables.sql and 126_allocation_pending_observation.sql. Those files
+-- are verbatim copies of API-HUB-Backend/RL/db/migrations (RL owns the schema); this block
+-- mirrors them so newly provisioned tenants are born with the tables. The oxygen change
+-- (migration 125, ALTER hospilot.vitals) is intentionally NOT here — it is on hold pending
+-- sync-owner sign-off. No allocation table has a foreign key into hospilot.*.
+-- =========================================================================================
+CREATE SCHEMA IF NOT EXISTS allocation;
+
+-- 123 · forecast retention (the un-backfillable Demand denominator; clock starts on create).
+CREATE TABLE IF NOT EXISTS allocation.forecast_history (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    endpoint        text        NOT NULL,
+    scope           text        NOT NULL,
+    horizon         text        NOT NULL,
+    forecast_for    timestamptz NOT NULL,
+    computed_at     timestamptz NOT NULL DEFAULT now(),
+    value           numeric(12,4) NOT NULL,
+    payload         jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    raw_response    jsonb,
+    actual_value    numeric(12,4),
+    actual_recorded_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS forecast_history_median_idx
+    ON allocation.forecast_history (endpoint, scope, horizon, computed_at DESC);
+CREATE INDEX IF NOT EXISTS forecast_history_for_idx
+    ON allocation.forecast_history (forecast_for);
+CREATE OR REPLACE VIEW allocation.forecast_median_30d AS
+SELECT endpoint, scope, horizon,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY value) AS median_value,
+       count(*)                                            AS sample_count,
+       min(computed_at)                                    AS window_start
+FROM allocation.forecast_history
+WHERE computed_at >= now() - interval '30 days'
+GROUP BY endpoint, scope, horizon;
+
+-- 124 · auction tables (one row per agent PER ROUND, incl. losers; full component breakdown).
+CREATE TABLE IF NOT EXISTS allocation.auction (
+    id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    auction_key             text        NOT NULL,
+    resource_type           text        NOT NULL,
+    resource_id             text        NOT NULL,
+    mode                    text        NOT NULL DEFAULT 'live',
+    trigger_source          text        NOT NULL,
+    predicted_free_at       timestamptz NOT NULL,
+    opened_at               timestamptz NOT NULL DEFAULT now(),
+    closed_at               timestamptz,
+    max_rounds              smallint    NOT NULL,
+    rounds_run              smallint    NOT NULL DEFAULT 0,
+    reserve_price           numeric(8,3),
+    winning_agent           text,
+    winning_candidate_id    text,
+    winning_bid             numeric(8,3),
+    outcome                 text,
+    caps_version            text        NOT NULL,
+    config_version          text        NOT NULL,
+    unsigned_rules          jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    participants            jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    created_at              timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT auction_mode_valid
+        CHECK (mode IN ('live', 'simulation', 'advisory', 'replay')),
+    CONSTRAINT auction_outcome_valid
+        CHECK (outcome IS NULL OR outcome IN ('awarded', 'no_award', 'aborted'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS auction_key_live_uniq
+    ON allocation.auction (auction_key) WHERE mode = 'live';
+CREATE INDEX IF NOT EXISTS auction_opened_idx    ON allocation.auction (opened_at DESC);
+CREATE INDEX IF NOT EXISTS auction_resource_idx  ON allocation.auction (resource_type, resource_id);
+CREATE INDEX IF NOT EXISTS auction_training_idx  ON allocation.auction (mode, closed_at) WHERE mode = 'live';
+
+CREATE TABLE IF NOT EXISTS allocation.auction_bid (
+    id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    auction_id              uuid        NOT NULL REFERENCES allocation.auction (id) ON DELETE CASCADE,
+    round_index             smallint    NOT NULL,
+    agent                   text        NOT NULL,
+    candidate_id            text        NOT NULL,
+    patient_token           text,
+    action                  text        NOT NULL,
+    amount                  numeric(8,3) NOT NULL,
+    utility                 numeric(8,3) NOT NULL,
+    ceiling                 numeric(8,3) NOT NULL,
+    alpha                   numeric(5,4),
+    contention              numeric(5,3),
+    outcome_factor          numeric(4,3),
+    cost                    numeric(8,3),
+    component_points        jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    component_coverage      jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    policy_name             text,
+    -- Pathway decision behind the bid (mirror of migration 127 / engine 094).
+    q_action                text,
+    plan                    jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    q_values                jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    feasible_actions        text[]      NOT NULL DEFAULT '{}',
+    decided_at              timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT bid_action_valid
+        CHECK (action IN ('withdraw', 'hold', 'increase_bid')),
+    CONSTRAINT bid_within_ceiling
+        CHECK (action = 'withdraw' OR amount <= ceiling),
+    CONSTRAINT bid_q_action_valid CHECK (
+        q_action IS NULL OR q_action IN (
+            'win_now', 'continue', 'withdraw_alternative', 'await_next_resource',
+            're_enter_later', 'withdraw_unplanned')),
+    CONSTRAINT bid_q_action_matches_action CHECK (
+        q_action IS NULL
+        OR (q_action IN ('win_now', 'continue') AND action IN ('increase_bid', 'hold'))
+        OR (q_action IN ('withdraw_alternative', 'await_next_resource',
+                         're_enter_later', 'withdraw_unplanned') AND action = 'withdraw')),
+    CONSTRAINT bid_arranged_exit_has_plan CHECK (
+        q_action IS DISTINCT FROM 'withdraw_alternative' OR plan ? 'target_unit'),
+    CONSTRAINT bid_await_exit_has_forecast CHECK (
+        q_action IS DISTINCT FROM 'await_next_resource'
+        OR (plan ? 'expected_release_at' AND plan ? 'release_probability')),
+    CONSTRAINT bid_reenter_exit_has_trigger CHECK (
+        q_action IS DISTINCT FROM 're_enter_later' OR plan ? 'reentry_expires_at'),
+    CONSTRAINT bid_unplanned_exit_has_no_plan CHECK (
+        q_action IS DISTINCT FROM 'withdraw_unplanned' OR plan = '{}'::jsonb)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS auction_bid_uniq
+    ON allocation.auction_bid (auction_id, round_index, agent);
+CREATE INDEX IF NOT EXISTS auction_bid_agent_idx ON allocation.auction_bid (agent, decided_at DESC);
+CREATE INDEX IF NOT EXISTS auction_bid_q_action_idx
+    ON allocation.auction_bid (q_action) WHERE q_action IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS allocation.agent_budget (
+    id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    agent                   text        NOT NULL,
+    shift_id                text        NOT NULL,
+    shift_start             timestamptz NOT NULL,
+    shift_end               timestamptz NOT NULL,
+    base                    numeric(10,3) NOT NULL,
+    demand_factor           numeric(5,3)  NOT NULL,
+    criticality_factor      numeric(5,3)  NOT NULL DEFAULT 1.000,
+    fairness_factor         numeric(5,3)  NOT NULL,
+    scarcity_factor         numeric(5,3)  NOT NULL,
+    factor_sources          jsonb         NOT NULL DEFAULT '{}'::jsonb,
+    budget_total            numeric(10,3) NOT NULL,
+    budget_remaining        numeric(10,3) NOT NULL,
+    spent_this_shift        numeric(10,3) NOT NULL DEFAULT 0,
+    recovered_this_shift    numeric(10,3) NOT NULL DEFAULT 0,
+    source                  text        NOT NULL,
+    n_win                   smallint,
+    n_req                   smallint,
+    cost_per_win            numeric(8,3),
+    cost_per_loss           numeric(8,3),
+    caps_version            text        NOT NULL,
+    config_version          text        NOT NULL,
+    created_at              timestamptz NOT NULL DEFAULT now(),
+    updated_at              timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT budget_source_valid CHECK (source IN ('seed', 'computed')),
+    CONSTRAINT budget_remaining_sane CHECK (budget_remaining <= budget_total)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS agent_budget_uniq
+    ON allocation.agent_budget (agent, shift_id);
+CREATE INDEX IF NOT EXISTS agent_budget_shift_idx ON allocation.agent_budget (shift_start DESC);
+
+CREATE TABLE IF NOT EXISTS allocation.utility_snapshot (
+    id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    auction_id              uuid        NOT NULL REFERENCES allocation.auction (id) ON DELETE CASCADE,
+    round_index             smallint    NOT NULL,
+    taken_at                timestamptz NOT NULL,
+    hospital_state          jsonb       NOT NULL,
+    patient_data            jsonb       NOT NULL,
+    factor_signals          jsonb       NOT NULL,
+    caps_version            text        NOT NULL,
+    config_version          text        NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS utility_snapshot_uniq
+    ON allocation.utility_snapshot (auction_id, round_index);
+
+-- FLAG F-01: mortality_observed NULL = unknown, NOT "no death". No structured source yet.
+CREATE TABLE IF NOT EXISTS allocation.auction_outcome (
+    id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    auction_id              uuid        NOT NULL REFERENCES allocation.auction (id) ON DELETE CASCADE,
+    observed_at             timestamptz NOT NULL DEFAULT now(),
+    horizon_hours           numeric(5,2) NOT NULL,
+    terms                   jsonb       NOT NULL,
+    reward_total            numeric(8,3) NOT NULL,
+    mortality_observed      boolean,
+    mortality_source        text,
+    complete                boolean     NOT NULL DEFAULT false,
+    missing_terms           text[]      NOT NULL DEFAULT '{}'
+);
+CREATE UNIQUE INDEX IF NOT EXISTS auction_outcome_uniq ON allocation.auction_outcome (auction_id);
+
+-- 126 · pending-observation store (durable 4-hour reward queue; adapter-side batch job).
+CREATE TABLE IF NOT EXISTS allocation.pending_observation (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    auction_id      uuid        NOT NULL REFERENCES allocation.auction (id) ON DELETE CASCADE,
+    closed_at       timestamptz NOT NULL,
+    horizon_hours   numeric(5,2) NOT NULL,
+    due_at          timestamptz NOT NULL,
+    status          text        NOT NULL DEFAULT 'pending',
+    attempts        smallint    NOT NULL DEFAULT 0,
+    last_attempt_at timestamptz,
+    last_error      text,
+    observed_at     timestamptz,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT pending_obs_status_valid
+        CHECK (status IN ('pending', 'observed', 'abandoned'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS pending_observation_auction_uniq
+    ON allocation.pending_observation (auction_id);
+CREATE INDEX IF NOT EXISTS pending_observation_due_idx
+    ON allocation.pending_observation (due_at) WHERE status = 'pending';

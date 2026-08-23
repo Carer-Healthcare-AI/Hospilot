@@ -1,0 +1,57 @@
+# Local run and a template for a deployment.
+#
+#   docker compose up --build
+#   curl -s localhost:8000/health
+#
+# To lock it down, set a key in the environment before bringing it up:
+#
+#   ALLOCATION_API_KEY=$(openssl rand -hex 24) docker compose up --build
+#   curl -s -H "X-API-Key: $ALLOCATION_API_KEY" localhost:8000/config
+
+services:
+  allocation-api:
+    build: .
+    image: hospilot-allocation:latest
+
+    # 127.0.0.1 on the host side. Publishing "8000:8000" would bind 0.0.0.0 and put this on
+    # every interface the machine has, which on a laptop on a hospital network is a different
+    # thing from "running it locally".
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    environment:
+      ALLOCATION_HOST: 0.0.0.0
+      ALLOCATION_PORT: "8000"
+      # Unset by default: the shipped data source is fixtures, so there is nothing to protect
+      # and a demo should not demand a credential. Set it from the host environment for
+      # anything reachable by anyone else. Empty is treated as unset, not as a key.
+      ALLOCATION_API_KEY: "${ALLOCATION_API_KEY:-}"
+      ALLOCATION_STORE_SIZE: "64"
+
+    # Scenarios are the one input worth changing without a rebuild. Read-only: the API only
+    # ever reads them, and a writable mount is a way for a bug to become a persistent one.
+    volumes:
+      - ./scenarios:/app/scenarios:ro
+
+    restart: unless-stopped
+
+    # A synchronous auction is CPU-bound and a session runs up to 200 of them. Without a
+    # ceiling one caller can starve everything else on the host.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status == 200 else 1)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
