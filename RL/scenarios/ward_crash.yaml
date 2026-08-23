@@ -1,0 +1,117 @@
+# Appendix C, with one change: the Ward patient deteriorates sharply just before the auction.
+#
+# Run it:
+#     python -m allocation --scenario scenarios/ward_crash.yaml
+#
+# WHAT IT DEMONSTRATES (BUILD_SPEC F-25 — RESOLVED)
+# Ward's utility rises to ~112, ABOVE ER's ~108 — it now has the sickest patient. Under the
+# common Base of 700 (RL-Steps section 4, the shipped default) Ward opens with headroom, the
+# affordability guard never binds, and WARD WINS at ~95: clinical need decides the allocation.
+#
+# It was not always so. Under AGENT_BUDGET v0.3's derived Bases, Ward's maximum affordable
+# bid was 79 against a ceiling of ~112 — the BUDGET, not the utility ceiling, was its real
+# maximum, and it lost to ER at 89 while holding the sickest patient in the hospital. That
+# failure mode is pinned under `base.mode: derived` by
+# tests/test_scenarios.py::test_a_derived_base_still_lets_the_budget_override_clinical_need,
+# so switching the mode back cannot reintroduce it silently; the win itself is asserted by
+# test_the_sickest_patient_now_wins_under_a_common_base.
+#
+# Compare against the unmodified baseline by dropping the last `vitals` entry for
+# Ward-Patient-C (Ward ~48.6, ER wins).
+#
+# TIMES ARE RELATIVE to the moment the auction opens: -55m, +2h, -1d. Absolute timestamps rot,
+# because the freshness windows (4 h vitals, 24 h labs) are measured from now — a file written
+# today would silently lose half its inputs next month.
+#
+# ABSENT MEANS ABSENT. Omit a key, or write `null`, and the factor is DROPPED and its
+# component renormalised over what remains. It never becomes 0. `gcs` is omitted for the
+# anaesthetised OT patient for exactly this reason: consciousness is not assessable, which is
+# not the same as a GCS of 3.
+
+description: Ward patient crashes — highest utility, and under the common Base it wins
+
+hospital:
+  unit: icu
+  unit_total_beds: 20
+  unit_occupied_beds: 20
+  predicted_demand_4h: 4.0
+  expected_discharges_4h: 1.0
+  boarding_count: 7
+  lwbs_risk: 0.42
+  active_isolation_cases: 2
+
+candidates:
+  # -- ER · 58 M, septic shock, boarding 55 minutes ------------------------------------
+  - candidate_id: ER-Patient-A
+    agent: er
+    arrived_at: -55m
+    current_unit: resus
+    condition_category: septic_shock
+    severity_band: pressors_reversible_source
+    needs: [ventilation, vasopressors, one_to_one_nursing, continuous_monitoring]
+    pending_nursing_tasks: 14
+    ward_nurses: 6
+    expected_los_days: 3.5
+    icu_day_rate: 18000
+    best_alternative_unit: ED Resus
+    vitals:
+      - {at: -120m, temperature: 38.2, pulse: 96,  bp_systolic: 104, spo2: 95, respiratory_rate: 22, gcs: 15, on_oxygen: true}
+      - {at: -60m,  temperature: 38.4, pulse: 108, bp_systolic: 94,  spo2: 94, respiratory_rate: 24, gcs: 15, on_oxygen: true, is_critical: true}
+      - {at: -5m,   temperature: 38.6, pulse: 118, bp_systolic: 86,  spo2: 93, respiratory_rate: 26, gcs: 14, on_oxygen: true, is_critical: true}
+    labs:
+      - {test_name: lactate,    result_value: 4.8, at: -30m, unit: mmol/L,  flag: H}
+      - {test_name: creatinine, result_value: 2.4, at: -30m, unit: mg/dL,   flag: H}
+      - {test_name: bilirubin,  result_value: 1.8, at: -30m, unit: mg/dL}
+      - {test_name: platelets,  result_value: 88,  at: -30m, unit: 10^3/uL, flag: L}
+    orders:
+      - {medication_name: Noradrenaline, generic_name: norepinephrine, route: IV, status: active, at: -75m}
+      - {medication_name: Oxygen, generic_name: oxygen, route: inhalation, status: active, at: -130m}
+
+  # -- OT · 65 M, cardiac bypass, intraoperative ---------------------------------------
+  - candidate_id: OT-Patient-B
+    agent: ot
+    arrived_at: -10m
+    current_unit: theatre
+    condition_category: post_op_cardiac
+    severity_band: routine
+    needs: [ventilation, one_to_one_nursing, continuous_monitoring]
+    pending_nursing_tasks: 6
+    ward_nurses: 5
+    ot_cases_at_risk: 3
+    expected_los_days: 1.0
+    icu_day_rate: 340000        # cardiac package rate, not a day rate
+    best_alternative_unit: PACU
+    pacu_capacity_probability: 0.35
+    vitals:
+      # gcs deliberately absent — anaesthetised, so consciousness is not assessable.
+      - {at: -90m, temperature: 36.2, pulse: 72, bp_systolic: 112, spo2: 99, respiratory_rate: 12, on_oxygen: true}
+      - {at: -10m, temperature: 36.4, pulse: 78, bp_systolic: 118, spo2: 98, respiratory_rate: 14, on_oxygen: true}
+    labs:
+      - {test_name: lactate,    result_value: 1.4, at: -40m, unit: mmol/L}
+      - {test_name: creatinine, result_value: 1.0, at: -40m, unit: mg/dL}
+      - {test_name: bilirubin,  result_value: 0.9, at: -40m, unit: mg/dL}
+      - {test_name: platelets,  result_value: 210, at: -40m, unit: 10^3/uL}
+
+  # -- Ward · 72 F, pneumonia — THE CHANGE IS THE LAST VITALS ROW ----------------------
+  - candidate_id: Ward-Patient-C
+    agent: ward
+    arrived_at: -80m
+    current_unit: ward
+    condition_category: pneumonia
+    severity_band: progressive
+    needs: [continuous_monitoring]
+    pending_nursing_tasks: 22
+    ward_nurses: 4
+    expected_los_days: 2.5
+    icu_day_rate: 15000
+    best_alternative_unit: HDU
+    vitals:
+      - {at: -150m, temperature: 38.0, pulse: 98,  bp_systolic: 112, spo2: 93, respiratory_rate: 22, gcs: 15, on_oxygen: true}
+      - {at: -10m,  temperature: 38.2, pulse: 104, bp_systolic: 108, spo2: 92, respiratory_rate: 24, gcs: 15, on_oxygen: true}
+      # Delete this line to recover the Appendix C baseline (Ward ~48.6, ER wins at 85).
+      - {at: -2m,   temperature: 39.1, pulse: 132, bp_systolic: 84,  spo2: 85, respiratory_rate: 32, gcs: 13, on_oxygen: true, is_critical: true}
+    labs:
+      - {test_name: lactate,    result_value: 2.2, at: -105m, unit: mmol/L}
+      - {test_name: creatinine, result_value: 1.4, at: -105m, unit: mg/dL}
+      - {test_name: bilirubin,  result_value: 0.8, at: -105m, unit: mg/dL}
+      - {test_name: platelets,  result_value: 165, at: -105m, unit: 10^3/uL}

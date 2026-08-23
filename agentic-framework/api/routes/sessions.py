@@ -306,6 +306,31 @@ async def _parked_non_patient_interrupt(session_id: str) -> bool:
     return False
 
 
+def _overlay_stored_tasks(client_pipeline: dict, stored_pipeline: dict) -> None:
+    """Overlay the server-persisted sub-agent task lists onto the client-sent pipeline.
+
+    Every /reorchestrate scope persists the authoritative pipeline (incl. task-level
+    conditions/selection) via update_session_pipeline, but execute_session binds from
+    body.pipeline. With no UI to merge conditions client-side, a task-level edit made
+    over the API would be dropped when the caller re-sends a pre-reorchestration
+    pipeline. Server is authoritative: for every (agent, sub-agent) present in both,
+    replace the client's tasks with the stored ones. No-op when nothing was reorchestrated.
+    """
+    stored_by_sa: dict[tuple, list] = {
+        (a.get("id"), sa.get("id")): sa["tasks"]
+        for a in stored_pipeline.get("agents", [])
+        for sa in a.get("sub_agents", [])
+        if sa.get("id") and sa.get("tasks") is not None
+    }
+    if not stored_by_sa:
+        return
+    for a in client_pipeline.get("agents", []):
+        for sa in a.get("sub_agents", []):
+            tasks = stored_by_sa.get((a.get("id"), sa.get("id")))
+            if tasks is not None:
+                sa["tasks"] = tasks
+
+
 @router.post("/sessions/{session_id}/execute")
 async def execute_session(
     session_id: str, body: ExecuteSessionRequest,
@@ -314,7 +339,12 @@ async def execute_session(
 ):
     logger.info("POST /sessions/%s/execute  overrides=%s", session_id, list(body.agent_task_overrides.keys()))
     org = _org_for(ctx, org_id)
-    await authorized_session(session_id, ctx, owner_or_admin=True, org_id_hint=org)
+    session = await authorized_session(session_id, ctx, owner_or_admin=True, org_id_hint=org)
+
+    # 0. Reconcile task-level modifications: overlay the server-persisted pipeline
+    #    (carrying conditions/selection set via /reorchestrate) onto body.pipeline,
+    #    since execute binds from body.pipeline and there is no UI to merge them in.
+    _overlay_stored_tasks(body.pipeline, (session or {}).get("pipeline") or {})
 
     # 1. Save task overrides to Hasura + Redis
     for agent_id, tasks in body.agent_task_overrides.items():
@@ -760,11 +790,26 @@ async def reorchestrate_session(
         preplan[body.subagent_id] = task_plan or {"__planned__": True}
         await cache.set(f"session:{session_id}:subagent_preplan:{agent_base_id}", preplan, ttl=3600)
 
-        selected_tasks = list(task_plan.keys()) if task_plan else []
+        # Persist the selected tasks AND their conditions onto the pipeline. This is
+        # the only carrier that survives to execution -- execute_session rebuilds the
+        # preplan from body.pipeline via materialize_preplans (which reads
+        # task["condition"]). Broadcasting/returning bare ids dropped the condition,
+        # so a task-level "add a condition" edit never took effect.
+        selected_tasks = [
+            {"id": tid,
+             "label": (entry.get("label") or tid),
+             "condition": entry.get("condition"),
+             "outputs": entry.get("outputs", [])}
+            for tid, entry in (task_plan or {}).items()
+        ]
+        if cur_sa is not None:
+            cur_sa["tasks"] = selected_tasks
+            await hasura.update_session_pipeline(session_id, pipeline, org_id=org)
+
         await hasura.update_session_status(session_id, "pending", org_id=org)
-        await hasura.write_audit(session_id, agent_base_id, "reorchestrated", {"feedback": body.feedback, "scope": "tasks", "subagent_id": body.subagent_id, "selected": selected_tasks}, org_id=org)
+        await hasura.write_audit(session_id, agent_base_id, "reorchestrated", {"feedback": body.feedback, "scope": "tasks", "subagent_id": body.subagent_id, "selected": [t["id"] for t in selected_tasks]}, org_id=org)
         await broadcast(session_id, {"type": "session_reorchestrated", "scope": "tasks", "agent_id": agent_base_id, "subagent_id": body.subagent_id, "selected_tasks": selected_tasks})
-        logger.info("[ok] reorchestrated tasks  session=%s  agent=%s  subagent=%s  selected=%s", session_id, agent_base_id, body.subagent_id, selected_tasks)
+        logger.info("[ok] reorchestrated tasks  session=%s  agent=%s  subagent=%s  selected=%s", session_id, agent_base_id, body.subagent_id, [t["id"] for t in selected_tasks])
         return {"session_id": session_id, "scope": "tasks", "agent_id": agent_base_id, "subagent_id": body.subagent_id, "selected_tasks": selected_tasks}
 
     # -- Sub-agent selection / reordering ------------------------------------

@@ -1,0 +1,38 @@
+# Drug -> class lookup. BUILD_SPEC F-14.
+#
+# hospilot.pharmacy_orders has medication_name and generic_name but no classification, so
+# vasopressor status is name matching. Vasopressor status is an explicit ER input
+# (RL-Steps section 8) and a TTL recalculation trigger (section 3).
+#
+# Matching is case-insensitive substring against generic_name, falling back to
+# medication_name. An order counts only when route is intravenous and status is active.
+
+status: assumed_pending_pharmacy_review
+
+vasopressors:
+  - norepinephrine
+  - noradrenaline
+  - epinephrine
+  - adrenaline
+  - dopamine
+  - dobutamine
+  - vasopressin
+  - phenylephrine
+  - terlipressin
+
+# The B.1 workaround used in Appendix C.2: "Oxygen flag inferred from an active O2 order in
+# pharmacy_orders". Unreliable — oxygen is frequently not ordered through pharmacy. This is a
+# stopgap until vitals.on_oxygen exists (migration 092).
+oxygen:
+  - oxygen
+  - o2
+
+active_order_status:
+  - active
+  - dispensed
+  - administered
+
+intravenous_routes:
+  - iv
+  - intravenous
+  - infusion

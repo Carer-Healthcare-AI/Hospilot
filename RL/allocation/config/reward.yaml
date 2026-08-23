@@ -1,0 +1,134 @@
+# Reward terms — RL-Steps sections 23-24.
+#
+# "The auction result itself does not tell RL whether its policy was good. The hospital must
+#  observe what happened afterward."
+#
+# The reward is a SINGLE SCALAR PER AUCTION, computed from observed hospital outcomes.
+# Section 23 gives R for the whole allocation, not one per agent. Per-agent credit assignment
+# is a modelling decision that belongs to the policy layer and has not been made — it is the
+# same open question as the multi-agent scheme (independent / shared / CTDE).
+#
+# Each term is a named condition:
+#     observed True   -> award the points
+#     observed False  -> 0, the thing did not happen
+#     observed None   -> MISSING. Never 0. Excluded, and the episode marked incomplete.
+#
+# ⚠ THESE POINT VALUES ARE RL-STEPS' OWN AND HAVE NEVER BEEN FITTED. They are the reward
+# function, so they determine what any trained policy optimises for. Getting them wrong is
+# not like getting a threshold wrong.
+#
+# ⚠ SECTION 23'S OWN ARITHMETIC DOES NOT ADD UP (BUILD_SPEC F-22). Its nine listed terms sum
+# to 200; the section states R = 190. The terms as listed are used here.
+
+status: assumed_pending_clinical_signoff
+
+# How long after close to wait before scoring. Section 23's narrative runs to about 14:12,
+# roughly an hour after a 13:00 auction, but the allocation horizon is 4 h.
+horizon_hours: 4.0
+
+# Section 21: the agent maximises the discounted return across the SHIFT, not the auction.
+discount_gamma: 0.99
+
+# --- Section 23 · the episode where ER won ----------------------------------------------
+terms:
+  transferred_to_icu:
+    scenario: won
+    points: 50
+    source: ipd_admissions
+    description: The winning patient actually reached an ICU bed
+
+  patient_stabilised:
+    scenario: won
+    points: 40
+    source: vitals
+    description: NEWS2 stopped rising after transfer
+
+  boarding_reduced:
+    scenario: won
+    points: 15
+    source: visits
+    description: ED boarding count fell
+
+  cubicle_released:
+    scenario: won
+    points: 10
+    source: beds
+    description: The resus bay or cubicle was freed
+
+  no_mortality:
+    scenario: won
+    points: 30
+    source: null                # ⚠ F-01 — NO STRUCTURED SOURCE ANYWHERE IN THE SCHEMA
+    description: >
+      No death within the outcome window. There is no deceased/expired/death column or enum
+      value in any hospilot migration; discharge_summaries holds free text only. This is the
+      LARGEST single term and, with its section 24 counterpart, it sets the SIGN of the
+      episode. Until a disposition field exists it is always unobserved, and every episode is
+      therefore incomplete.
+
+  safely_held:
+    scenario: won
+    points: 10
+    source: ot_room_status
+    description: A losing surgical case was safely held in PACU
+
+  second_bed_opened:
+    scenario: won
+    points: 15
+    source: beds
+    description: A further ICU bed became available inside the window
+
+  surgery_not_cancelled:
+    scenario: won
+    points: 20
+    source: ot_surgery_schedule
+    description: No theatre case was cancelled as a consequence
+
+  no_staffing_violation:
+    scenario: won
+    points: 10
+    source: staff_roster
+    description: No nurse-to-patient ratio breach resulted
+
+# --- Section 24 · the counterfactual where ER lost --------------------------------------
+# Not a separate reward function: the same term set, with the negative conditions observable
+# only when the allocation went the other way.
+  patient_deterioration:
+    scenario: lost
+    points: -60
+    source: vitals
+    description: The unsuccessful patient deteriorated while waiting
+
+  additional_boarding:
+    scenario: lost
+    points: -20
+    source: visits
+    description: ED boarding rose further
+
+  emergency_escalation:
+    scenario: lost
+    points: -20
+    source: pharmacy_orders
+    description: Emergency intubation or pressor escalation was required
+
+  ot_throughput:
+    scenario: lost
+    points: 25
+    source: ot_surgery_schedule
+    description: Theatre throughput was preserved instead
+
+  revenue:
+    scenario: lost
+    points: 10
+    source: claims
+    description: Revenue realised on the allocation actually made
+
+# `scenario` separates section 23's episode (the allocation went ahead) from section 24's
+# counterfactual (it did not). They are mutually exclusive outcome sets, not one flat list:
+# without the distinction, "surgery not cancelled" and "OT throughput preserved" would both
+# be available in the same episode and the ceiling would read 235 instead of 200.
+#
+# A term whose `source` is null cannot be observed today. Listed here so the gap is visible
+# at load rather than discovered when an episode turns out to be unusable.
+unobservable_terms:
+  - no_mortality

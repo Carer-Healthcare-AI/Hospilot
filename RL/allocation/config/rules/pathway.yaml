@@ -1,0 +1,85 @@
+# Pathway constants — the three strategic exits of RL-Steps' closing table.
+#
+#   WITHDRAW_ALTERNATIVE   leave and activate another bed
+#   AWAIT_NEXT_RESOURCE    leave because another bed is coming
+#   RE_ENTER_LATER         leave under a monitored condition
+#
+# STATUS: UNSIGNED, and this file is the loudest of the unsigned tables, because unlike caps
+# it can end a patient's participation in an auction. A wrong cap distorts a bid. A wrong
+# number here withdraws a patient from a bed they needed, and the reward will not notice: the
+# episode simply scores whatever happened next, with nothing recording that the exit was taken
+# on a constant nobody chose.
+#
+# Every value below is OURS. RL-Steps supplies one worked example ("an ICU discharge in 35 min
+# with 88 % confidence") and no rule for producing either number.
+
+status: assumed_pending_clinical_signoff
+
+# --- Q(Win Now) vs Q(Continue & Win Later) ---------------------------------------------
+# RL-Steps separates these by the patient's safe waiting window: Win Now when "delay is
+# dangerous", Continue when "immediate acquisition isn't essential" — its example being OT,
+# whose "safe waiting window is 45 min".
+compete:
+  # Below this many minutes of safe waiting, the regime is Win Now. Null disables the
+  # comparison entirely, in which case only a patient with NO known window reads as urgent.
+  #
+  # 60 is chosen to sit just above RL-Steps' own 45-minute example so that example lands in
+  # Win Now, which is how the narrative reads it. That is a rationale, not a measurement.
+  win_now_below_minutes: 60
+
+  # Minimum alpha in the Win Now regime. NULL BY DEFAULT, AND DELIBERATELY SO.
+  #
+  # The heuristic reproduces every bid in END_TO_END section 18, and that ladder is the
+  # regression baseline for the whole system. A labelling change that moved a bid would
+  # invalidate it silently. With this null, Win Now and Continue are honest labels over one
+  # unchanged derivation, and differentiating them by aggression is left to a policy that
+  # learned the difference rather than to a constant that asserts it.
+  win_now_alpha_floor: null
+
+# --- Q(Withdraw + Alternative) ---------------------------------------------------------
+alternative:
+  # PACU is the one alternative with a purpose-built signal — PatientData.pacu_capacity_
+  # probability, from the forecast layer. Above this, the bay is read as available.
+  #
+  # 0.5 is a coin flip dressed as a threshold. It should be set from the cost asymmetry: a
+  # patient withdrawn into a PACU that turns out to be full is much worse than one who stayed
+  # in a losing auction, so the cut belongs well above 0.5. Left at 0.5 until someone with
+  # standing to make that trade-off states it. BUILD_SPEC F-05: PACU has no representation in
+  # ot_room_status at all, so this probability is itself thinly sourced.
+  pacu_available_above: 0.5
+
+  # An alternative whose safe-hold window is shorter than this is not worth withdrawing into
+  # — the patient would need re-auctioning almost immediately, and the exit buys nothing but
+  # a lost round. Expressed in minutes against rules/units.yaml safe_hold_hours.
+  min_safe_hold_minutes: 45
+
+# --- Q(Wait for Next Resource) ---------------------------------------------------------
+next_release:
+  enabled: true
+  # expected_discharges_4h is a rate over this many hours. Poisson is assumed; see
+  # pathway/forecast.py for the direction of the error it introduces.
+  forecast_window_hours: 4.0
+  # Do not wait on a prediction weaker than this within the patient's safe window. RL-Steps'
+  # example uses 88 %; that is one narrative number, not a decision rule, and choosing 0.70
+  # here is equally unfounded — it is set below the example so the action is reachable at all
+  # under a derived (rather than modelled) probability.
+  min_probability: 0.70
+
+# --- Q(Re-enter Later) -----------------------------------------------------------------
+reentry:
+  enabled: true
+  # How long a monitor stays armed. Beyond this the physiology it was armed against is stale,
+  # exactly as utilities carry a TTL — an unexpiring trigger re-enters a patient who may since
+  # have been discharged. Set to the allocation horizon.
+  ttl_minutes: 240
+  # NEWS2 rise that re-opens bidding. A 2-point rise is the usual escalation trigger in NEWS2
+  # practice, but the threshold that should govern *re-auctioning* is not the same question as
+  # the one that governs *calling a doctor*, and nobody has answered the first.
+  news2_rise: 2.0
+  # Re-enter if the unit the patient was held in stops being available.
+  on_alternative_lost: true
+  # A patient with no holding unit can still be monitored — this is "wait and watch", not
+  # "moved and watched". Allowed, because refusing it would make Q(Re-enter Later) available
+  # only to patients who already had an alternative, collapsing it into Q(Withdraw +
+  # Alternative).
+  allow_without_holding_unit: true

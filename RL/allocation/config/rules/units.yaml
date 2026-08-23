@@ -1,0 +1,87 @@
+# Unit capability vectors (B.7) and safe-hold durations (B.4).
+#
+# STATUS: UNSIGNED. B.4 is explicitly "a clinical governance artifact, not a model" — one
+# workshop. B.7 is a small config table.
+#
+# These two tables together produce Alternative Availability:
+#     Quality  = |needs & capability(best_alt_unit)| / |needs|
+#     Duration = clamp(safe_hold_hours / allocation_horizon_hours, 0, 1)
+#     AL       = -20 * Quality * Duration
+#
+# BUILD_SPEC F-16: this is the LARGEST single discriminator in the utility (-2.4 / -13.0 /
+# -14.0 in Appendix C.5, a wider spread than any other negative term) and it drives two of
+# the three withdrawals in the worked example. It rests entirely on the two tables below,
+# neither of which exists in the schema.
+
+status: assumed_pending_clinical_signoff
+
+# --- Ward name -> unit type (BUILD_SPEC 5.5) -------------------------------------------
+# hospilot.beds has a free-text `ward` and no unit-type enum, so identification is string
+# matching. Patterns are matched case-insensitively, in order.
+ward_patterns:
+  - {pattern: "icu",   unit: icu}
+  - {pattern: "hdu",   unit: hdu}
+  - {pattern: "pacu",  unit: pacu}
+  - {pattern: "recovery", unit: pacu}
+  - {pattern: "resus", unit: resus}
+  - {pattern: "emergency", unit: ed}
+  - {pattern: "",      unit: ward}      # default
+
+# --- Care ladder (Step 8) --------------------------------------------------------------
+# Most capable and scarcest first. Alternative Availability is scored RELATIVE to the unit
+# being auctioned, and this ordering is what "relative" means.
+#
+# An alternative BELOW the target unit is a DE-ESCALATION — a genuine fallback. "You could
+# hold this patient in HDU instead of ICU" is a real reason to want the ICU bed less, and it
+# is what the -20 penalty was designed to express.
+#
+# An alternative ABOVE the target unit is an ESCALATION, and it is not a fallback at all.
+# Auction an HDU bed and ICU sits above it: scoring ICU as a comfortable alternative (quality
+# 1.0, duration 1.0 -> the full -20, "you need this less") reads a scarcer, better, harder-to-
+# get bed as a convenience. It inverts the meaning of the term. If anything, a patient who
+# could go to ICU is one that giving an HDU bed to would FREE ICU capacity.
+#
+# The unit being auctioned is excluded from its own alternatives — a ward bed is not an
+# alternative to a ward bed.
+care_ladder: [icu, hdu, pacu, resus, ed, ward]
+
+# Multiplier applied to Quality x Duration when the alternative is an escalation.
+#
+# 0.0 removes escalations from consideration entirely: the score is the best remaining
+# de-escalation, or zero if there is none. That is the conservative reading — it never
+# penalises a patient for being sick enough to need a *better* bed than the one on offer.
+#
+# ⚠ This number is a choice, not a measurement, like everything else in this file. A
+# non-zero value would say "an escalation is a partial fallback"; nobody has established
+# that it is. Covered by this file's `status` above.
+escalation_penalty_multiplier: 0.0
+
+# --- Capability vectors (B.7) ----------------------------------------------------------
+capability:
+  icu:   [ventilation, vasopressors, one_to_one_nursing, continuous_monitoring]
+  hdu:   [vasopressors, continuous_monitoring]
+  pacu:  [ventilation, vasopressors, one_to_one_nursing, continuous_monitoring]
+  # A resus bay can start and run pressors and monitor continuously, but cannot provide
+  # sustained ventilation or 1:1 ICU nursing. Appendix C.0 declares ER's quality as 0.40;
+  # with a four-need profile the reachable values are 0.25 / 0.50 / 0.75, so this yields 0.50.
+  resus: [vasopressors, continuous_monitoring]
+  ed:    [continuous_monitoring]
+  ward:  []
+
+# --- Safe-hold duration (B.4) ----------------------------------------------------------
+# How long each unit may safely hold a patient, in hours. Duration adequacy is
+# clamp(safe_hold_hours / allocation_horizon_hours), horizon = 4 h.
+#
+# ⚠ BACK-SOLVED FROM APPENDIX C.0, AND C.0 CONTRADICTS THE NARRATIVE (BUILD_SPEC F-21).
+# C.0 declares duration adequacy as ER 0.30 / OT 0.65 / Ward 0.70, which at a 4 h horizon
+# means 1.2 h / 2.6 h / 2.8 h. But the prose says PACU holds ~60-75 minutes (RL-Steps
+# sections 8 and 15) and HDU ~2 hours — which would give 0.31 and 0.50. The declared values
+# are used here so the worked example reproduces; the narrative values are recorded beside
+# them. This table is unsigned either way and the workshop should settle it.
+safe_hold_hours:
+  icu:   {default_hours: 24.0}
+  hdu:   {default_hours: 2.8,  narrative_hours: 2.0,  note: "C.0 declares 0.70; prose says ~2 h"}
+  pacu:  {default_hours: 2.6,  narrative_hours: 1.25, note: "C.0 declares 0.65; prose says ~60-75 min"}
+  resus: {default_hours: 1.2,  narrative_hours: 0.75, note: "C.0 declares 0.30; prose says ~30-45 min"}
+  ed:    {default_hours: 0.5}
+  ward:  {default_hours: 0.0}

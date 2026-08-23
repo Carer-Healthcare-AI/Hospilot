@@ -125,6 +125,39 @@ def _availability_report(candidates: list) -> dict:
     }
 
 
+# -- RL bed-auction award (advisory) ------------------------------------------
+# An advisory auction (rl_gateway) never holds a bed; it records an AWARD naming the winning
+# patient for a resource. Here we let that award BIAS which patient this reservation is for --
+# reordering only, so the awarded patient is reserved first and survives the bed_limit cap.
+# Approval stays HITL. A no-match / disabled gateway leaves selection unchanged.
+
+def _patient_token(p) -> str | None:
+    if isinstance(p, dict):
+        return p.get("patient_token") or p.get("token") or p.get("candidate_id")
+    return p if isinstance(p, str) else None
+
+
+def _prioritize_awarded(patients: list, awarded_tokens: set) -> list:
+    """Stable-reorder so RL-awarded patients come first. No-op when nothing matches -- never
+    fabricates or drops a patient."""
+    if not awarded_tokens or not patients:
+        return patients
+    winners = [p for p in patients if _patient_token(p) in awarded_tokens]
+    if not winners:
+        return patients
+    rest = [p for p in patients if _patient_token(p) not in awarded_tokens]
+    return winners + rest
+
+
+def _award_note(awards: dict) -> str:
+    """One-line approver-facing justification from the session's RL awards, or ''."""
+    parts = [
+        f"patient {a.get('patient_token')} for {res} (bid {a.get('winning_bid')})"
+        for res, a in (awards or {}).items() if a.get("patient_token")
+    ]
+    return ("RL bed auction awarded " + "; ".join(parts) + ".") if parts else ""
+
+
 async def _run_cleaning_completion(sid: str, ta_results: dict, task_plan: dict | None) -> None:
     if not task_plan:
         return
@@ -213,7 +246,8 @@ async def _finalize_batch(sid: str, pending: dict, decision: str) -> dict:
 
 # -- Approval initiators (first-run path) -------------------------------------
 
-async def _start_single(sid: str, candidates: list, ta_results: dict, task_plan: dict) -> dict:
+async def _start_single(sid: str, candidates: list, ta_results: dict, task_plan: dict,
+                        award_note: str = "") -> dict:
     if await should_run_task("ta_rank_beds", "sa_bed_ranking", ta_results, task_plan, sid):
         ranking = await rank_beds_activity(RankBedsInput(session_id=sid, candidates=candidates[:20]))
         ta_results["ta_rank_beds"] = ranking
@@ -246,8 +280,10 @@ async def _start_single(sid: str, candidates: list, ta_results: dict, task_plan:
         sid, agent_id="bed_agent", kind="bed_reservation",
         headline=f"Reserve bed {top_bed}",
         actions=[f"Reserve bed {top_bed} for the incoming patient"],
-        rationale=(ranking.get("recommendation")
-                   or (ranked_beds[0].get("reason") if ranked_beds else "")),
+        rationale=" ".join(x for x in (
+            award_note,
+            (ranking.get("recommendation") or (ranked_beds[0].get("reason") if ranked_beds else "")),
+        ) if x),
         risk="medium",
         extras={"bed_id": top_bed},
     )
@@ -255,7 +291,8 @@ async def _start_single(sid: str, candidates: list, ta_results: dict, task_plan:
                          "action_type": "bed_reservation", "risk": "medium", "bed_id": top_bed})
 
 
-async def _start_batch(sid: str, critical_patients: list, candidates: list, ta_results: dict, task_plan: dict) -> dict:
+async def _start_batch(sid: str, critical_patients: list, candidates: list, ta_results: dict,
+                       task_plan: dict, award_note: str = "") -> dict:
     if await should_run_task("ta_rank_beds", "sa_bed_ranking", ta_results, task_plan, sid):
         assignments = await find_beds_for_patients(BatchAssignmentInput(
             session_id=sid, critical_patients=critical_patients, available_beds=candidates))
@@ -284,7 +321,10 @@ async def _start_batch(sid: str, critical_patients: list, candidates: list, ta_r
              f"{(a.get('bed') or {}).get('bed_number', a.get('bed_id'))}").strip()
             for a in assignments[:3]
         ],
-        rationale=f"{len(assignments)} critical patient(s) matched to available beds by triage priority",
+        rationale=" ".join(x for x in (
+            award_note,
+            f"{len(assignments)} critical patient(s) matched to available beds by triage priority",
+        ) if x),
         risk="high",
         extras={"count": len(assignments)},
     )
@@ -447,10 +487,27 @@ async def run_bed_body(sid: str, ctx: dict) -> dict:
     def _cap(patients: list) -> list:
         return patients[:bed_limit] if bed_limit is not None else patients
 
+    # RL bed auction (advisory): if an auction awarded a bed in this session to a specific
+    # patient, prioritize that patient in whichever reservation branch fires (reserved first,
+    # survives the bed_limit cap). Approval stays HITL. Best-effort -- a disabled/unavailable
+    # gateway or a no-match leaves selection unchanged.
+    awarded_tokens: set = set()
+    award_note = ""
+    try:
+        from rl_gateway.award import read_awards
+        _awards = await read_awards(sid)
+        awarded_tokens = {a.get("patient_token") for a in _awards.values() if a.get("patient_token")}
+        award_note = _award_note(_awards)
+    except Exception:
+        logger.debug("rl award read skipped", exc_info=True)
+
+    def _pick(patients: list) -> list:
+        return _cap(_prioritize_awarded(patients, awarded_tokens))
+
     # -- BATCH FLOW -- ER critical patients -------------------------------------
     critical_patients = (ctx.get("er_agent", {}).get("critical_patients", []) if ctx else [])
     if critical_patients:
-        return await _start_batch(sid, _cap(critical_patients), candidates, ta_results, task_plan)
+        return await _start_batch(sid, _pick(critical_patients), candidates, ta_results, task_plan, award_note)
 
     # -- BATCH FLOW -- ICU patients (step-down or escalation) -------------------
     # G41: skip on a bed-RELEASE (post-discharge) instance -- ICU step-down /
@@ -462,10 +519,10 @@ async def run_bed_body(sid: str, ctx: dict) -> dict:
     if not release_instance and icu_ctx.get("mode") != "capacity_check":
         step_down_patients = icu_ctx.get("step_down_candidates", [])
         if step_down_patients:
-            return await _start_batch(sid, _cap(step_down_patients), candidates, ta_results, task_plan)
+            return await _start_batch(sid, _pick(step_down_patients), candidates, ta_results, task_plan, award_note)
         escalation_patients = icu_ctx.get("escalation_candidates", [])
         if escalation_patients:
-            return await _start_batch(sid, _cap(escalation_patients), candidates, ta_results, task_plan)
+            return await _start_batch(sid, _pick(escalation_patients), candidates, ta_results, task_plan, award_note)
 
     # -- BOUND-PATIENT FLOW -- reserve for the flow's specific patient(s) --------
     # No upstream batch patients: this reservation is for the patient(s) the flow
@@ -479,9 +536,9 @@ async def run_bed_body(sid: str, ctx: dict) -> dict:
 
     _dynamic = await run_dynamic_tasks("bed_agent", task_plan, ta_results, sid)
     if len(bound_patients) > 1:
-        _result = await _start_batch(sid, _cap(bound_patients), candidates, ta_results, task_plan)
+        _result = await _start_batch(sid, _pick(bound_patients), candidates, ta_results, task_plan, award_note)
     else:
-        _result = await _start_single(sid, candidates, ta_results, task_plan)
+        _result = await _start_single(sid, candidates, ta_results, task_plan, award_note)
     # _start_single / _start_batch raise GraphInterrupt when an approval is created;
     # they only return for the no-approval / failed / no-ranking early exits.
     if _result and _dynamic:

@@ -10,6 +10,9 @@ from temporalio import activity
 from llm_client import llm_chat
 from db.hasura import hasura
 from workflows.graph.prefetch import PREFETCH_TASK_RUNNERS
+from workflows.strategies import (
+    strategy_catalogue_text, is_valid_strategy, default_strategy_id,
+)
 from schemas.types import SubAgent, Task
 
 logger = logging.getLogger("planner")
@@ -1522,10 +1525,18 @@ Constraints: "{constraints}"
 Plan ONLY the agent graph -- which agents run and how they connect. Do NOT include
 sub_agents or tasks (those are planned in later stages).
 
+Also choose ONE execution strategy that governs how agents coordinate when several
+run in the same level. Pick the id of exactly one strategy from this list:
+{strategy_catalogue}
+Default to "common_goal" unless several agents clearly contend for the SAME scarce
+resource (then "bidding") or independently produce competing solutions to the same
+goal (then "competing").
+
 Return ONLY valid JSON, no markdown:
 {{
   "understood_goal": "one sentence summary",
   "priority": "urgent | high | normal",
+  "strategy": "<one strategy id from the list above>",
   "agents": [
     {{"id": "<agent_id from available list>", "label": "<label>", "color": "<color>",
       "role": "what this agent does in this pipeline",
@@ -1561,7 +1572,8 @@ async def generate_agents_and_edges(
     )
 
     _user_content = USER_TEMPLATE_AGENTS.format(
-        goal=goal, constraints=constraints or "none")
+        goal=goal, constraints=constraints or "none",
+        strategy_catalogue=strategy_catalogue_text())
     _user_content += _revision_block(prior_plan)
     _dump_prompt("AGENTS + EDGES BUILD (stage 1)", system_prompt, _user_content)
 
@@ -1590,6 +1602,12 @@ async def generate_agents_and_edges(
     pipeline = json.loads(text)
     pipeline.setdefault("agents", [])
     pipeline.setdefault("edges", [])
+    # Validate the chosen execution strategy against the config allowlist; fall
+    # back to the default when the LLM omits it or names one that isn't registered.
+    chosen = pipeline.get("strategy")
+    pipeline["strategy"] = chosen if is_valid_strategy(chosen) else default_strategy_id()
+    if pipeline["strategy"] != chosen:
+        logger.info("strategy %r invalid/missing -> default %r", chosen, pipeline["strategy"])
     for a in pipeline["agents"]:
         a.pop("sub_agents", None)  # stages 2-3 own these
 

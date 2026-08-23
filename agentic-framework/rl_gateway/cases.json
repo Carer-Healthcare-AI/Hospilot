@@ -1,0 +1,49 @@
+{
+  "_comment": "Single source of truth for bed-allocation bidding cases. Add a case = add a block in `cases`; add/point a participant = one line in `departments`. The loader (rl_gateway/queries.py) derives everything else from here: keyword->resource matching, resource->unit, department->engine AgentKind, and agent-node->department. NOTE: only these THREE departments exist as real agent nodes (there is no ward_agent) -- `icu` fills the engine's `ward` bidder slot via engine_kind (the F-12/§0 decision). `participants` per case is the local driver for who bids; the engine's /use-cases guard (assert_biddable) stays as a backstop. Data-source mappings (WARD_TO_UNIT, bed-status enums) live in assemble.py/trigger.py, not here -- they are tenant read semantics, not case rules.",
+
+  "departments": {
+    "er":  { "agent_node": "er_agent",  "engine_kind": "er" },
+    "ot":  { "agent_node": "ot_agent",  "engine_kind": "ot" },
+    "icu": { "agent_node": "icu_agent", "engine_kind": "ward" }
+  },
+
+  "cases": [
+    {
+      "resource": "hdu_bed",
+      "unit": "hdu",
+      "participants": ["er", "ot", "icu"],
+      "keywords": ["hdu", "high-dependency", "high dependency"]
+    },
+    {
+      "resource": "pacu_bed",
+      "unit": "pacu",
+      "participants": ["er", "ot", "icu"],
+      "keywords": ["pacu", "post-anaes", "recovery bay"]
+    },
+    {
+      "resource": "resus_bed",
+      "unit": "resus",
+      "participants": ["er", "ot", "icu"],
+      "keywords": ["resus"]
+    },
+    {
+      "resource": "ward_bed",
+      "unit": "ward",
+      "participants": ["er", "ot", "icu"],
+      "keywords": ["ward"]
+    },
+    {
+      "resource": "ed_bed",
+      "unit": "ed",
+      "participants": ["er", "ot", "icu"],
+      "keywords": ["ed bed", "emergency department", "cubicle"]
+    },
+    {
+      "resource": "icu_bed",
+      "unit": "icu",
+      "default": true,
+      "participants": ["er", "ot", "icu"],
+      "keywords": ["icu", "intensive care", "critical care"]
+    }
+  ]
+}

@@ -1,0 +1,201 @@
+# Agent priority budget for a PACU BED (RECOVERY BAY) — RL-Steps section 4.
+#
+#   Shift Budget = Base x Demand x Criticality x Scarcity x Fairness
+#
+# ⚠ COPIED FROM budget_icu_bed.yaml. Every number below was chosen for an ICU bed.
+#
+# THE POOL SEPARATION IS REAL; THE SIZING IS NOT. This file existing means a pacu-bed
+# auction no longer draws on the same pool as an ICU-bed auction — which is the failure D-3
+# was about, and it is fixed. But Base 700, the spend model and the burn-rate bands were all
+# set against ICU-bed utilities (~107 in the worked example). pacu-bed utilities are smaller,
+# so the same Base makes the constraint proportionally LOOSER here: below a 0.40 burn rate
+# AGENT_BUDGET section 8 says the budget is inert and "bidding maximum is free, and the RL
+# will learn to do exactly that".
+#
+# Set Base from observed burn rates per resource type once auctions have been logged. Until
+# then this pool is separate but uncalibrated, and Config.unsigned says so on every run.
+#
+# GOVERNING DOCUMENT: RL-Steps section 4. It sets "a common Base Budget = 700 points for
+# 8 hours" (line 141) with an IDENTICAL Base for all three departments, and makes the four
+# factors carry every difference between them:
+#
+#   ER    700 x 1.20 x 1.15 x 1.05 x 0.99  ~ 1,000
+#   OT    700 x 1.05 x 1.05 x 1.00 x 1.04  ~   800
+#   Ward  700 x 1.00 x 1.00 x 1.00 x 1.00  =   700
+#
+# This SUPERSEDES AGENT_BUDGET v0.3's per-department derived Base (ER 80.4 / OT 12.8 /
+# Ward 18.0) and its removal of Criticality. That derivation is kept below under
+# `mode: derived` because its calibration argument is still the only thing that puts burn
+# rate in the working band — see the warning on `common_points`.
+#
+# SEEDING: shift 0 uses Base with Demand = Fairness = 1.0 (no forecast history, no auction
+# log) and live Scarcity.
+
+formula_version: rl_steps_s4_common_base
+resource_type: pacu_bed
+status: unfitted_copied_from_icu_bed
+
+# --- Base ------------------------------------------------------------------------------
+base:
+  # `common`  — RL-Steps section 4. One number for every department; the factors do the
+  #             differentiating. This is the framework's own design.
+  # `derived` — AGENT_BUDGET v0.3. Base_i from target win counts (see base_derivation).
+  mode: common
+
+  # RL-Steps' own figure, for an 8-hour shift.
+  #
+  # WARNING — THIS NUMBER IS NOT CALIBRATED TO THIS SYSTEM'S SPEND MODEL. RL-Steps' 700
+  # assumes its section 4 full-deduction spend; we settled on a 0.25 commitment rate, under
+  # which a typical winning bid of ~85 costs ~25. At Base 700 a department would burn ~3.6%
+  # per auction and never approach its allowance in a shift.
+  #
+  # AGENT_BUDGET section 8: below a 0.40 burn rate the budget is INERT, and "bidding maximum
+  # is free, and the RL will learn to do exactly that" — the constraint stops existing. Set
+  # this from observed burn rates once auctions have been logged; 700 is RL-Steps' figure,
+  # not a fitted one. BUILD_SPEC F-27.
+  common_points: 700
+  hours: 8
+  status: assumed_pending_burn_rate_data
+
+# --- Base derivation (mode: derived only) ----------------------------------------------
+#   E[bid]        = E[utility] * E[alpha]
+#   cost_per_win  = E[bid] * contention * 1.0 * commitment_rate
+#   cost_per_loss = E[bid] * contention * 0.1 * commitment_rate
+#   Base          = N_win * cost_per_win + (N_req - N_win) * cost_per_loss
+base_derivation:
+  expected_alpha: 0.65          # [BA2] assumption — replace with observed bids after ~50 auctions
+  reference_contention: 1.1     # [assumption] AGENT_BUDGET section 4's derivation constant
+  expected_utility:             # [computed] END_TO_END Appendix C — downstream of unfitted caps (BA8)
+    er: 107.1
+    ot: 34.2
+    ward: 45.7
+
+# GOVERNANCE — the real departmental priority decision. Nothing in the data determines these.
+# "ER should win 4 of its 6 ICU requests" is a claim a governance meeting can accept, reject
+# or amend; "ER gets 1,000 points" is not. UNSIGNED — assumption BA1.
+targets:
+  er:   {n_win: 4, n_req: 6}
+  ot:   {n_win: 2, n_req: 3}
+  ward: {n_win: 2, n_req: 4}
+targets_status: assumed_pending_governance   # BUILD_SPEC 7.5 decisions 2 and 4
+
+# --- Shift factors ---------------------------------------------------------------------
+factors:
+  demand:
+    # clamp(forecast_i / median_30(forecast_i), 0.8, 1.3)
+    # Numerator and denominator both from /icu/demand so forecast bias cancels rather than
+    # compounding. Historical ICU admissions must NOT be used as the denominator: they count
+    # granted requests and silently drop denials, which is biased per department and
+    # self-reinforcing.
+    clamp: [0.8, 1.3]           # [BA6]
+    median_window_days: 30
+    fallback: 1.0               # until the retention table has 30 days — BUILD_SPEC F-18
+  criticality:
+    # RL-Steps section 4, line 180: "how clinically time-sensitive that department's requests
+    # tend to be", measured as the share of a department's ICU requests needing admission
+    # within 30 minutes.
+    #
+    #   Department   % needing admission <30 min   Criticality
+    #   ER                    65%                     1.15
+    #   OT                    40%                     1.05
+    #   Ward                  30%                     1.00
+    #
+    # RL-Steps line 192, its own words: "This should come from data, not a hard-coded belief
+    # that ER is always more important." IT IS HARD-CODED HERE, because the measurement needs
+    # a history of ICU requests with time-to-admission, and the auction log does not exist yet
+    # (F-02). These are RL-Steps' published values standing in until it does.
+    #
+    # AGENT_BUDGET v0.3 DROPPED this factor, arguing it double-counts Urgency: a department
+    # whose patients are typically time-critical already scores high Urgency, hence high
+    # utility, hence high bids — multiplying its budget as well compounds the same fact
+    # twice. That objection is real but second-order: Criticality spans 1.00-1.15 while the
+    # utility spread between departments is roughly threefold. RL-Steps includes the factor,
+    # so it is included. BUILD_SPEC F-28.
+    source: rule_table_pending_data
+    status: assumed_pending_governance
+    default: 1.00
+    values:
+      er: 1.15
+      ot: 1.05
+      ward: 1.00
+    # The mapping the values should be recomputed from, once the log exists.
+    thresholds:
+      admission_within_minutes: 30
+      bands:
+        - {min_share: 0.60, factor: 1.15}
+        - {min_share: 0.35, factor: 1.05}
+        - {min_share: 0.00, factor: 1.00}
+
+  fairness:
+    version: v1
+    value: 1.0                  # v1: fixed until ~10 shifts of auction log exist
+    clamp: [0.95, 1.05]         # [BA7] "a small correction, not something that should
+                                #       override clinical urgency" — RL-Steps' own words
+    v2_weight: 0.4              # clamp(1 + 0.4*(expected_share - actual_share), ...)
+    v2_window_shifts: 10
+  scarcity:
+    # clamp(1 + 0.3*(occupancy_4h - 0.85)/0.15, 1.0, 1.3)
+    #
+    # SCOPE: one value for every AGENT, within ONE RESOURCE TYPE. It used to say `global`,
+    # justified as "an identical multiplier on every budget alters no relative position; it
+    # only changes how binding the constraint is for everyone at once."
+    #
+    # That reasoning is still exactly right ACROSS AGENTS and was never right ACROSS BED
+    # TYPES. Scarcity is computed from the occupancy of the unit being auctioned: ICU at 100%
+    # and wards at 60% are two different numbers about two different units, and collapsing
+    # them to one multiplier would either inflate ward budgets during an ICU crunch or damp
+    # ICU budgets during a quiet one. Neither is "an identical multiplier on every budget" —
+    # it is the wrong unit's occupancy applied to the right unit's auction.
+    #
+    # This file is per resource type, so the scope is per resource type by construction.
+    onset_occupancy: 0.85       # [our choice]
+    span: 0.15                  # derived: 1.00 - 0.85
+    slope: 0.3                  # [our choice]
+    clamp: [1.0, 1.3]
+    scope: per_resource_type
+
+# --- Spend -----------------------------------------------------------------------------
+#   Cost = Bid * Contention * Outcome * CommitmentRate
+# SETTLED: commitment rate, not full deduction. RL-Steps specifies spend three ways
+# (section 4 table, section 4 text, section 19) differing ~5x in shift capacity.
+spend:
+  commitment_rate: 0.25         # [BA3] range 0.1-0.4; tuned by burn rate
+  outcome_factor:
+    win: 1.0
+    lose: 0.1
+  contention:
+    # clamp(0.80 + 0.10*(n_bidders-1) + 0.15*occ_stress + 0.05*disch_stress, 0.8, 1.3)
+    # A three-parameter fit to four qualitative labels. RL-Steps gives a range and two
+    # CONTRADICTORY anchors for "high" (table 1.2, worked example 1.1), so there is nothing
+    # to derive from. Tolerable because contention scales how fast budget burns, never who
+    # wins — that latitude does not extend to the caps tables.
+    floor: 0.80                 # [RL-Steps band, anchored to "1 patient -> low"]
+    per_extra_bidder: 0.10      # [our fit] puts n=2 ~ 1.0, n=4 ~ 1.2
+    occupancy_weight: 0.15      # [our fit]
+    discharge_weight: 0.05      # [our fit] small; occupancy already carries most of it
+    occupancy_onset: 0.85       # [our choice]
+    occupancy_span: 0.15
+    discharge_clear_at: 3.0     # [our choice] discharges at which scarcity disappears
+    clamp: [0.8, 1.3]
+  # AGENT_BUDGET section 7.3: RL-Steps writes "Bid <= RemainingBudget", which over-restricts
+  # by 4x under a 0.25 commitment rate. The true constraint is on cost.
+  affordability: cost_le_remaining
+
+# --- Renewal ---------------------------------------------------------------------------
+#   hourly_recovery = B_i / hours_per_shift * rho
+#   Budget(t+1)     = min(B_i, Budget(t) - spend + hourly_recovery)
+# The min cap prevents hoarding: without it an agent learns to lose deliberately to bank
+# capacity above the shift allowance.
+renewal:
+  hours_per_shift: 8
+  rho: 0.5                      # [BA5] guess — needs burn-rate data to tune
+  cap_at_total: true
+
+# --- Health metric ---------------------------------------------------------------------
+# Burn rate is checked every shift. A department that bids its ceiling on every case must run
+# out before the shift ends, or bidding maximum is free and the RL will learn to do exactly
+# that.
+burn_rate_bands:
+  inert_below: 0.40             # lower B or raise commitment rate
+  working: [0.70, 1.10]
+  starved_above: 1.50           # raise B

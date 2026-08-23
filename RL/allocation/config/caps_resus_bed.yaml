@@ -1,0 +1,92 @@
+# Utility component maxima for a RESUSCITATION BAY.
+#
+# ONE CAPS FILE PER RESOURCE TYPE. The profile selects this file via
+# `ResourceProfile.caps_config`, and `caps_version` hashes the file actually used — so an
+# ICU-bed auction and a ward-bed auction stamp different versions and their audit rows stay
+# distinguishable and re-derivable. Sharing one file across resource types would make every
+# row claim a calibration it was not scored under.
+#
+# NORMATIVE. RL-Steps section 8's alternative maxima (Urgency /35, Throughput /15,
+# Operational /10, Alternative /-25, Financial /5) are superseded by this table, per
+# END_TO_END's own ruling: "The table above is used throughout this file; the section 8
+# arithmetic is recomputed to match it."
+#
+# ⚠ UNFITTED, AND NOT EVEN CHOSEN FOR THIS RESOURCE — every number below is copied
+# verbatim from caps_icu_bed.yaml, which was itself chosen rather than fitted (B.13 / BA8).
+# A resus bay holds a patient ~1.2 h and has one eligible bidder, so its utilities
+# are never contested the way an ICU bed's are.
+#
+# These caps are a placeholder that lets the resource be auctioned at all. Any result
+# scored against them is arithmetically valid and clinically meaningless. Fit them, or
+# read the output as a smoke test only. Every agent
+# budget is denominated in utility points, so every budget is downstream of them. A change
+# here re-derives every budget in the system. `caps_version` is a hash of this file and is
+# stamped on every utility and every budget row; never edit without expecting a re-derive.
+#
+# SIGN CONVENTION — caps carry their own sign. Points = cap * score, score in [0, 1], so
+# Alternative and Resource Stress come out negative and the utility is a plain sum. D.0
+# writes "U = CB + UR + WD + TH + OP + FI - AL - RS", but Appendix C sums the already-
+# negative values. Following the prose would double-negate them.
+
+resource_type: resus_bed
+
+# Reported by Config.unsigned on EVERY run, deliberately louder than the ICU file's own
+# status: this table was not chosen for this resource, it was copied to it.
+status: unfitted_copied_from_icu_bed
+
+components:
+  clinical_benefit:
+    cap: 60
+    meaning: Expected reduction in harm/mortality
+  urgency:
+    cap: 40
+    meaning: How soon this level of care is needed
+  waiting:
+    cap: 25
+    meaning: Harm caused by additional waiting
+  throughput:
+    cap: 25
+    meaning: Beds/queues/workflows unlocked
+  operational:
+    cap: 20
+    meaning: Cancellation, bottlenecks, staff utilisation
+  financial:
+    cap: 10
+    meaning: Revenue / financial consequence
+  alternative:
+    cap: -20
+    meaning: HDU, delay, transfer, recovery room
+  resource_stress:
+    cap: -10
+    meaning: Staffing, isolation, equipment constraints
+
+# Factor weights within each component. RL-Steps' own weights, unchanged.
+# A factor whose input is absent is DROPPED and the component renormalised over the weights
+# present (D.0). It is never scored 0.
+weights:
+  clinical_benefit:
+    deterioration_risk: 0.30
+    unit_benefit: 0.25         # per-resource rule table; no model — B.10
+    oxygen_severity: 0.20
+    organ_risk: 0.15
+    age_comorbidity: 0.10      # no DOB in hospilot.patients — permanently absent for now
+  urgency:
+    news2: 0.35
+    oxygen_trend: 0.30
+    vital_trend: 0.20
+    time_to_critical: 0.15     # no model — B.5
+  throughput:
+    bed_release: 0.40
+    nursing_capacity: 0.30
+    queue_impact: 0.20
+    downstream_impact: 0.10
+  financial:
+    expected_revenue: 0.40
+    avoided_cost: 0.30         # no cost table — B.6
+    capacity_value: 0.30
+  resource_stress:
+    occupancy: 0.50
+    demand_pressure: 0.30
+    isolation_pressure: 0.20
+
+# waiting, operational and alternative are products, not weighted sums — see D.3, D.5, D.7.

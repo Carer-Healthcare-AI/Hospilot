@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     # wait before the reaper resumes the flow with a timeout + escalation alert.
     patient_registration_timeout_hours: int = 24
 
+    # Forecast service (:18000 ML APIs) -- read by util.forecast_client for the
+    # RL bed-auction hospital state. Empty => forecasts skipped (no-op).
+    forecast_base_url: str = ""   # e.g. http://192.46.212.81:18000
+    forecast_api_key: str = ""    # sent as X-API-Key header (:18000 returns 401 without it)
+
     # FHIR -- outbound /fhir REST API (R5 / 5.0.0 models)
     fhir_enabled: bool = True
     fhir_base_url: str = "http://localhost:8000/fhir"

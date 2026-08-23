@@ -1,0 +1,95 @@
+# Target-unit benefit — Clinical Benefit factor, weight .25. Per resource type.
+#
+# STATUS: UNSIGNED. Requires an intensivist workshop (B.10a). The three ICU values below are
+# the ones used in END_TO_END Appendix C.0 and are assumptions, not clinical guidance.
+#
+# WHY THIS FACTOR MATTERS MORE THAN ITS WEIGHT SUGGESTS: it is the only thing separating
+# *sick* from *helped by the bed on offer*. Without it a 60-point component rewards severity
+# alone, and the system will sometimes prefer the patient the unit cannot help.
+#
+# WHY IT IS PER RESOURCE: this used to be icu_benefit.yaml and asked one question — "does ICU
+# help?". Across a bed family the question is not merely re-scored, it INVERTS. For an ICU bed
+# it asks whether escalation helps. For a ward bed it asks whether a ward bed is *sufficient*
+# — a patient who would benefit enormously from ICU is exactly the patient a ward bed does not
+# serve. Reusing one table across both would score the second question with the first
+# question's answers.
+#
+# ONE FILE, ONE SECTION PER RESOURCE, rather than one file per resource like the caps tables.
+# Config.unsigned reports per rule table, so six files would put five irrelevant entries in
+# the governance line of every run. The section carries its own `status` instead.
+#
+# This is the INTERIM. The real model (B.10) is P(harm | bed) vs P(harm | no bed), which needs
+# records of patients who were DENIED a bed. Nothing in the schema stores a denial, so it is
+# blocked until the auction log has been running.
+#
+# Lookup: resources[resource_type].entries[condition_category, severity_band] -> [0, 1]
+# An unmatched condition, or a resource whose table is empty, is ABSENT — never 0.0 (D.0).
+# Absent drops the factor and renormalises the other four, so Clinical Benefit runs at
+# reduced coverage and says so, instead of publishing a number nobody has established.
+
+status: assumed_pending_clinical_signoff
+default: null
+
+resources:
+  icu_bed:
+    question: "Does ICU admission reduce expected harm for this patient?"
+    status: assumed_pending_clinical_signoff
+    source: END_TO_END Appendix C.0
+    entries:
+      - condition_category: septic_shock
+        severity_band: pressors_reversible_source
+        score: 0.85
+        note: "Appendix C.2 — ER Patient A"
+
+      - condition_category: post_op_cardiac
+        severity_band: routine
+        score: 0.45
+        note: "Appendix C.3 — OT Patient B"
+
+      - condition_category: pneumonia
+        severity_band: progressive
+        score: 0.60
+        note: "Appendix C.4 — Ward Patient C"
+
+  # ---------------------------------------------------------------------------------------
+  # Every section below is EMPTY ON PURPOSE. There is no Appendix C for these units and no
+  # clinical guidance to copy, and the ICU numbers cannot be reused — see the inversion note
+  # above. An empty table makes the factor absent, which costs coverage and is visible; a
+  # copied table would produce a confident number that is wrong in a direction nobody could
+  # detect. Each `question` is written out so the workshop knows what it is being asked to
+  # score, which is the actual deliverable here.
+  # ---------------------------------------------------------------------------------------
+
+  hdu_bed:
+    question: >-
+      Is high-dependency care sufficient for this patient — enough monitoring and vasopressor
+      support without ventilation or 1:1 nursing?
+    status: undefined_needs_clinical_definition
+    entries: []
+
+  pacu_bed:
+    question: >-
+      Does a recovery bay meet this patient's needs for the next 1-3 hours, given it matches
+      ICU capability but not ICU duration?
+    status: undefined_needs_clinical_definition
+    entries: []
+
+  resus_bed:
+    question: >-
+      Does a resuscitation bay stabilise this patient within the ~1 hour it can hold them?
+    status: undefined_needs_clinical_definition
+    entries: []
+
+  ed_bed:
+    question: >-
+      Is an ED cubicle an appropriate place for this patient, rather than somewhere they are
+      merely waiting?
+    status: undefined_needs_clinical_definition
+    entries: []
+
+  ward_bed:
+    question: >-
+      Is a ward bed SUFFICIENT for this patient — no continuous monitoring, no vasopressors?
+      Note the inversion: a high ICU-benefit score implies a LOW score here.
+    status: undefined_needs_clinical_definition
+    entries: []
