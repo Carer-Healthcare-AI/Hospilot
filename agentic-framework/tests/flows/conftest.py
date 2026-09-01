@@ -180,3 +180,47 @@ async def flow_session():
     session_id = str(uuid.uuid4())
     await hasura.create_session(session_id, goal="flow-e2e", constraints="", pipeline={})
     yield session_id
+
+
+# ── run receipt ──────────────────────────────────────────────────────────────
+# A live run records what it proved, so the author can paste evidence into the PR
+# and CI can check it against the code being merged. See _receipt.py and
+# scripts/verify_flow_receipt.py.
+
+_FLOW_OUTCOMES: list[dict] = []
+
+
+def record_flow_outcome(outcome: dict) -> None:
+    """Called by the live flow tests; last write per flow name wins."""
+    global _FLOW_OUTCOMES
+    _FLOW_OUTCOMES = [o for o in _FLOW_OUTCOMES if o["name"] != outcome["name"]]
+    _FLOW_OUTCOMES.append(outcome)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Emit the receipt after a live run — but only for a COMPLETE, GREEN one.
+
+    A receipt for a partial or failing run would be worse than none: it would
+    look like evidence while proving nothing. So it is withheld unless every
+    flow ran and the session passed.
+    """
+    if not _FLOW_OUTCOMES or exitstatus != 0:
+        return
+
+    from _flows import ALL_FLOWS
+    from _receipt import build_receipt, render, write
+
+    ran = {o["name"] for o in _FLOW_OUTCOMES}
+    expected = {f["name"] for f in ALL_FLOWS}
+    if ran != expected:
+        print(f"\n[flow-receipt] NOT issued — only {sorted(ran)} of "
+              f"{sorted(expected)} ran. Run the whole suite: pytest tests/flows -m live")
+        return
+
+    receipt = build_receipt(_FLOW_OUTCOMES)
+    path = write(receipt)
+    print("\n" + "=" * 72)
+    print("FLOW RECEIPT — paste this block into your PR description")
+    print("=" * 72)
+    print(render(receipt))
+    print(f"\n(also written to {path})")

@@ -12,7 +12,7 @@ import pytest
 
 from _driver import run_flow
 from _flows import ALL_FLOWS, FLOW_ALL, FLOW_DISCHARGE_BILLING, THEMED_FLOWS
-from conftest import FLOW_TIMEOUT_SECONDS
+from conftest import FLOW_TIMEOUT_SECONDS, record_flow_outcome
 
 pytestmark = pytest.mark.usefixtures("redis_ready", "captured_broadcasts")
 
@@ -29,6 +29,16 @@ async def test_flow_runs_to_completion(flow, flow_session, capsys):
     run = await run_flow(flow, flow_session, FLOW_TIMEOUT_SECONDS)
     with capsys.disabled():
         print(f"\n▶ {run.summary()}")
+
+    # Record before asserting: the receipt is only emitted for a green session,
+    # so a failed flow can never contribute a passing-looking line.
+    record_flow_outcome({
+        "name": flow["name"],
+        "agents_ran": sorted(run.ran_agents),
+        "agents_skipped": sorted(run.skipped),
+        "supersteps": len(run.supersteps),
+        "duration_s": round(run.duration_s, 1),
+    })
 
     assert not run.failed, (
         f"[{flow['name']}] session failed: {run.final_state.get('_error', '(no detail)')}"

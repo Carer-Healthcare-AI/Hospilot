@@ -30,3 +30,6 @@ Thumbs.db
 
 # Docker
 *.override.yml
+
+# Local flow-run receipt (paste it into the PR; do not commit)
+flow-receipt.json
