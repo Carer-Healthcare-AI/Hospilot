@@ -1,19 +1,7 @@
-"""The budget layer against AGENT_BUDGET.md sections 4, 7, 8, 9 and 11.
+"""Regression tests for the budget layer.
 
-Section 11 is a fully worked example with every intermediate value published, so it serves the
-same purpose here that Appendix C serves for the utility: an executable specification.
-
-**This file tests ``base.mode: derived``**, which is AGENT_BUDGET v0.3 and no longer the
-shipped default — RL-Steps section 4's common Base is. The mode is still supported and its
-worked example is still a specification, so the tests pin it explicitly through the
-``config`` fixture below rather than following whatever the default happens to be. RL-Steps'
-common Base is tested separately, at the bottom.
-
-One fixture note that matters. Section 11 gets ER = 125 using Demand = 1.20, which is
-RL-Steps' 6/5 forecast example. With an empty retention table the code correctly falls back to
-Demand = 1.00 and produces 104. **The test injects 1.20 rather than expecting it from the
-data** — otherwise it would fail against its own reference for the right reason, which is the
-worst kind of red test.
+These tests pin the budget derivation and burn-band behavior so the allocation engine remains
+consistent across different config states and shift scenarios.
 """
 
 from __future__ import annotations

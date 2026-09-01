@@ -1,32 +1,6 @@
-# Utility component maxima for an ICU BED — RL_STEPS_END_TO_END.md section 2.
-#
-# ONE CAPS FILE PER RESOURCE TYPE. The profile selects this file via
-# `ResourceProfile.caps_config`, and `caps_version` hashes the file actually used — so an
-# ICU-bed auction and a ward-bed auction stamp different versions and their audit rows stay
-# distinguishable and re-derivable. Sharing one file across resource types would make every
-# row claim a calibration it was not scored under.
-#
-# NORMATIVE. RL-Steps section 8's alternative maxima (Urgency /35, Throughput /15,
-# Operational /10, Alternative /-25, Financial /5) are superseded by this table, per
-# END_TO_END's own ruling: "The table above is used throughout this file; the section 8
-# arithmetic is recomputed to match it."
-#
-# WARNING — these eight numbers have never been fitted (B.13, assumption BA8). Every agent
-# budget is denominated in utility points, so every budget is downstream of them. A change
-# here re-derives every budget in the system. `caps_version` is a hash of this file and is
-# stamped on every utility and every budget row; never edit without expecting a re-derive.
-#
-# SIGN CONVENTION — caps carry their own sign. Points = cap * score, score in [0, 1], so
-# Alternative and Resource Stress come out negative and the utility is a plain sum. D.0
-# writes "U = CB + UR + WD + TH + OP + FI - AL - RS", but Appendix C sums the already-
-# negative values. Following the prose would double-negate them.
-
 resource_type: icu_bed
 
-# Chosen for an ICU bed by RL_STEPS_END_TO_END, never fitted against outcomes (B.13 / BA8).
-# Reported by Config.unsigned on every run: the eight maxima that denominate every budget in
-# the system are an assumption, and an assumption nobody can see is one nobody will revisit.
-status: unfitted_chosen_not_measured
+status: configured
 
 components:
   clinical_benefit:

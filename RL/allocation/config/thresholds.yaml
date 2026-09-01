@@ -1,12 +1,3 @@
-# Scoring thresholds — RL_STEPS_END_TO_END.md D.10 and Appendix C.0.
-#
-# These are THRESHOLDS, NOT WEIGHTS. Revising them is cheap and does not touch the framework;
-# revising anything in a caps table does. Keep that distinction — it is the reason this is a
-# separate file.
-#
-# Provenance marker on each: [config] = our choice, tunable. Every one of them is a first
-# pass.
-
 vitals:
   slope_window_hours: 4.0       # [config] earliest reading inside the window is the baseline
   lab_freshness_hours: 24.0     # [config] labs older than this are dropped, not zeroed
