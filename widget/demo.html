@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CarePlus Hospital — HIS</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #1e293b; display: flex; height: 100vh; overflow: hidden; }
+
+    /* ── Sidebar ── */
+    aside {
+      width: 220px; flex-shrink: 0; background: #fff; border-right: 1px solid #e2e8f0;
+      display: flex; flex-direction: column;
+    }
+    .sidebar-brand {
+      padding: 18px 20px; display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .brand-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: linear-gradient(135deg, #6366f1, #3b82f6);
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-size: 15px; flex-shrink: 0;
+    }
+    .brand-name { font-size: 14px; font-weight: 700; color: #0f172a; }
+    .brand-sub  { font-size: 10px; color: #94a3b8; }
+
+    nav { padding: 12px 10px; flex: 1; }
+    .nav-item {
+      padding: 8px 12px; border-radius: 8px; font-size: 13px; cursor: pointer;
+      display: flex; align-items: center; gap: 10px; color: #64748b;
+      transition: background 0.15s, color 0.15s; margin-bottom: 2px;
+    }
+    .nav-item:hover  { background: #f8fafc; color: #1e293b; }
+    .nav-item.active { background: #eff6ff; color: #3b82f6; font-weight: 500; }
+    .nav-icon { font-size: 15px; width: 18px; text-align: center; }
+
+    .sidebar-footer { padding: 16px; border-top: 1px solid #e2e8f0; }
+    .user-row { display: flex; align-items: center; gap: 10px; }
+    .user-avatar {
+      width: 34px; height: 34px; border-radius: 50%; background: #eff6ff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 600; color: #3b82f6; flex-shrink: 0;
+    }
+    .user-name { font-size: 13px; font-weight: 500; color: #0f172a; }
+    .user-role { font-size: 11px; color: #94a3b8; }
+
+    /* ── Main ── */
+    main { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+
+    .topbar {
+      background: #fff; border-bottom: 1px solid #e2e8f0;
+      padding: 14px 28px; display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .page-title { font-size: 18px; font-weight: 700; color: #0f172a; }
+    .page-sub   { font-size: 13px; color: #94a3b8; margin-top: 1px; }
+    .topbar-actions { display: flex; align-items: center; gap: 12px; }
+    .search-bar {
+      padding: 8px 14px; border-radius: 8px; border: 1px solid #e2e8f0;
+      background: #f8fafc; color: #1e293b; font-size: 13px; width: 260px; outline: none;
+    }
+    .icon-action {
+      width: 36px; height: 36px; border-radius: 8px; border: 1px solid #e2e8f0;
+      background: #fff; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: #64748b; font-size: 16px; transition: background 0.15s;
+    }
+    .icon-action:hover { background: #f8fafc; }
+
+    .content { padding: 28px; flex: 1; }
+
+    /* ── Stats row ── */
+    .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+    .stat-card {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px;
+    }
+    .stat-label  { font-size: 12px; color: #94a3b8; font-weight: 500; margin-bottom: 8px; }
+    .stat-value  { font-size: 26px; font-weight: 700; color: #0f172a; }
+    .stat-delta  { font-size: 12px; margin-top: 4px; }
+    .delta-up   { color: #22c55e; }
+    .delta-down { color: #ef4444; }
+
+    /* ── Content grid ── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px;
+    }
+    .card-title { font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 16px; }
+    .card-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px;
+    }
+    .card-row:last-child { border-bottom: none; }
+    .card-label { color: #64748b; }
+    .card-val   { font-weight: 600; color: #0f172a; }
+
+    /* OT table */
+    .ot-row { display: grid; grid-template-columns: 80px 1fr 100px 100px; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+    .ot-row:last-child { border-bottom: none; }
+    .ot-room { font-weight: 600; color: #0f172a; }
+    .ot-case { color: #64748b; }
+    .ot-status { padding: 3px 9px; border-radius: 6px; font-size: 11px; font-weight: 600; text-align: center; }
+    .ot-active  { background: #dcfce7; color: #16a34a; }
+    .ot-waiting { background: #fef9c3; color: #ca8a04; }
+    .ot-done    { background: #f1f5f9; color: #64748b; }
+
+    .badge-count {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 22px; height: 22px; border-radius: 50%;
+      font-size: 11px; font-weight: 700;
+    }
+    .badge-red  { background: #fee2e2; color: #ef4444; }
+    .badge-green { background: #dcfce7; color: #16a34a; }
+    .badge-blue { background: #dbeafe; color: #3b82f6; }
+
+    /* ── Responsive ─────────────────────────────────────────────────────── */
+    @media (max-width: 1024px) {
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      .search-bar { width: 200px; }
+      .content { padding: 20px; }
+    }
+
+    @media (max-width: 768px) {
+      body { flex-direction: column; height: auto; min-height: 100vh; overflow-y: auto; }
+      aside {
+        width: 100%; flex-direction: row; align-items: center; flex-wrap: wrap;
+        border-right: none; border-bottom: 1px solid #e2e8f0;
+      }
+      .sidebar-brand { order: 1; border-bottom: none; }
+      .sidebar-footer { order: 2; margin-left: auto; border-top: none; }
+      nav { order: 3; flex: 1 1 100%; display: flex; gap: 4px; padding: 8px 12px; overflow-x: auto; }
+      .nav-item { margin-bottom: 0; white-space: nowrap; }
+      main { overflow-y: visible; }
+      .grid-2 { grid-template-columns: 1fr; }
+      .topbar { padding: 14px 16px; }
+      .content { padding: 16px; }
+    }
+
+    @media (max-width: 560px) {
+      .stats-row { grid-template-columns: 1fr; gap: 12px; }
+      .topbar { flex-direction: column; align-items: stretch; gap: 10px; }
+      .topbar-actions { width: 100%; }
+      .search-bar { flex: 1; width: auto; }
+      .stat-card { padding: 16px; }
+      .stat-value { font-size: 22px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sidebar -->
+  <aside>
+    <div class="sidebar-brand">
+      <div class="brand-icon">+</div>
+      <div>
+        <div class="brand-name">CarePlus</div>
+        <div class="brand-sub">Hospital HIS</div>
+      </div>
+    </div>
+    <nav>
+      <div class="nav-item active"><span class="nav-icon">📊</span> Dashboard</div>
+      <div class="nav-item"><span class="nav-icon">🏥</span> IPD</div>
+      <div class="nav-item"><span class="nav-icon">🩺</span> OPD</div>
+      <div class="nav-item"><span class="nav-icon">🚨</span> ER</div>
+      <div class="nav-item"><span class="nav-icon">🛏</span> Bed Management</div>
+      <div class="nav-item"><span class="nav-icon">🔬</span> Lab</div>
+      <div class="nav-item"><span class="nav-icon">💊</span> Pharmacy</div>
+      <div class="nav-item"><span class="nav-icon">💰</span> Billing</div>
+      <div class="nav-item"><span class="nav-icon">📁</span> Reports</div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-row">
+        <div class="user-avatar">N</div>
+        <div>
+          <div class="user-name">Dr. Neha Sharma</div>
+          <div class="user-role">Administrator</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main>
+    <div class="topbar">
+      <div>
+        <div class="page-title">Dashboard</div>
+        <div class="page-sub">Overview of hospital operations</div>
+      </div>
+      <div class="topbar-actions">
+        <input class="search-bar" placeholder="Search patients, menus, transactions…">
+        <div class="icon-action">🔔</div>
+        <div class="icon-action">❓</div>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-label">Today's Admissions</div>
+          <div class="stat-value">76</div>
+          <div class="stat-delta delta-up">↑ 12% vs yesterday</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Occupancy</div>
+          <div class="stat-value">82%</div>
+          <div class="stat-delta delta-up">↑ 5% vs yesterday</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Beds</div>
+          <div class="stat-value">350</div>
+          <div class="stat-delta" style="color:#94a3b8">287 Occupied · 48 Vacant · 15 Blocked</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">ER Wait (avg)</div>
+          <div class="stat-value">34m</div>
+          <div class="stat-delta delta-down">↑ 8m vs yesterday</div>
+        </div>
+      </div>
+
+      <!-- Content grid -->
+      <div class="grid-2">
+        <!-- Bed Overview -->
+        <div class="card">
+          <div class="card-title">Bed Overview by Unit</div>
+          <div class="card-row"><span class="card-label">ICU</span><span class="card-val">18 / 24 <span class="badge-count badge-red">6</span></span></div>
+          <div class="card-row"><span class="card-label">General Ward</span><span class="card-val">142 / 180 <span class="badge-count badge-green">38</span></span></div>
+          <div class="card-row"><span class="card-label">Private</span><span class="card-val">68 / 80 <span class="badge-count badge-blue">12</span></span></div>
+          <div class="card-row"><span class="card-label">Emergency</span><span class="card-val">24 / 30 <span class="badge-count badge-red">6</span></span></div>
+          <div class="card-row"><span class="card-label">Paediatric</span><span class="card-val">35 / 36 <span class="badge-count badge-red">1</span></span></div>
+        </div>
+
+        <!-- OT Overview -->
+        <div class="card">
+          <div class="card-title">OT Overview — Today</div>
+          <div class="ot-row" style="color:#94a3b8;font-size:11px;font-weight:600;padding-bottom:6px;">
+            <span>ROOM</span><span>CASE</span><span>STATUS</span><span>TIME</span>
+          </div>
+          <div class="ot-row">
+            <span class="ot-room">OT 1</span>
+            <span class="ot-case">Appendectomy — Dr. Arjun</span>
+            <span class="ot-status ot-active">In Progress</span>
+            <span style="color:#64748b">2:00 PM</span>
+          </div>
+          <div class="ot-row">
+            <span class="ot-room">OT 2</span>
+            <span class="ot-case">Knee Replacement — Dr. Meera</span>
+            <span class="ot-status ot-waiting">Prep</span>
+            <span style="color:#64748b">3:30 PM</span>
+          </div>
+          <div class="ot-row">
+            <span class="ot-room">OT 3</span>
+            <span class="ot-case">Cataract — Dr. Priya</span>
+            <span class="ot-status ot-done">Completed</span>
+            <span style="color:#64748b">12:00 PM</span>
+          </div>
+          <div class="ot-row">
+            <span class="ot-room">OT 4</span>
+            <span class="ot-case">Cholecystectomy — Dr. Rahul</span>
+            <span class="ot-status ot-waiting">Scheduled</span>
+            <span style="color:#64748b">5:00 PM</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!--
+    ═══════════════════════════════════════════════════════════
+    YOUR WIDGET GOES HERE.
+
+    This is the mock HIS dashboard your widget is being embedded into --
+    pretend this is a real hospital's own internal software. Don't copy
+    this file in place; copy it into your own folder under widget/ and
+    wire your widget into your copy (add your <script> tag / elements
+    below this comment).
+    ═══════════════════════════════════════════════════════════
+  -->
+
+</body>
+</html>
