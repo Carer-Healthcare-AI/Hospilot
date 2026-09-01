@@ -8,19 +8,6 @@ The policy implementation is agent-generic. It can be trained and used for any r
 bidder: `er`, `ot`, `ward`, or `icu`. Select the bidder with the training command's `--agent`
 option.
 
-## Model overview
-
-| Item | Value |
-|---|---|
-| Model | Linear Q-learning (`rl-linear-v1`) |
-| State | 22 normalized features |
-| Actions | 6 allocation strategies |
-| Parameters | 161 |
-| Discount factor | `0.99` |
-| Policy class | `allocation.rl.policy.LinearQPolicy` |
-| Learner | `allocation.rl.qlearn.QLearner` |
-| Default output | `artifacts/<agent>_q_policy.json` |
-
 The model estimates one value for every action:
 
 ```text
@@ -59,9 +46,6 @@ The state encoder converts each decision into 22 values in the range `[0, 1]`.
 | Budget and time | Remaining budget, burn rate, elapsed shift time |
 | Hospital state | Occupancy and boarding |
 | Pathways | Safe-wait window, alternative availability, release probability, and known-value flags |
-
-The encoder version is stored with the trained weights so the same feature order is used during
-training and prediction.
 
 ## How a decision is made
 
