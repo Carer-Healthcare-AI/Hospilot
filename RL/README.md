@@ -58,18 +58,142 @@ refused at load.
 heuristic allocates, the learned choices are logged. Acting needs `--live-policy`, which refuses
 to run while `auction.yaml`'s `safety_constraints` is empty.
 
-## Training and evaluation
+## How the RL was done
 
-The learning loop in this repo is the Q-learning path: fit a value function from persisted
-transitions, then serve the resulting policy through the same auction runtime.
+The reported experiment trains only the ER bidder; OT and Ward remain on the frozen heuristic.
+This keeps the environment stationary enough to attribute a change in reward to the ER policy.
+For each auction, the policy receives the 22-feature state vector described above, masks actions
+that are not feasible, chooses one of the six actions, and produces a bid-aggression value.
 
-```bash
-python scripts/train_q.py --agent er
+One episode is one agent over one shift. Each auction contributes an outcome reward after the
+configured four-hour observation window. The episode return is:
+
+```
+G = sum(gamma^t * reward_t), where gamma = 0.99
+AER = mean G over complete ER shift episodes
 ```
 
-The offline learner reads the saved transition dataset, checks coverage and convergence, and
-writes the learned weights artifact for the agent policy. The runtime then consumes the same
-policy format through the allocation engine and the standard CLI/API entrypoints.
+An episode with any unobserved reward term is excluded instead of being treated as a zero-reward
+episode. In the simulator, all required outcomes are generated so complete episodes can be used
+for training and comparison.
+
+### Training the published ER policy
+
+The shipped [ER policy](artifacts/er_policy.D_672ev_pop48.json) was fitted with the cross-entropy
+method (CEM), a derivative-free policy search implemented in [rl/train.py](allocation/rl/train.py).
+It is a linear policy with 161 fitted parameters: six action weight rows and biases plus the
+bid-aggression head.
+
+Training proceeded as follows:
+
+1. Sample a population of complete policy parameter vectors.
+2. Evaluate every candidate on the same simulated arrival streams.
+3. Rank candidates with unplanned abandonment behind every feasible candidate, then rank by AER.
+4. Keep the best 25%, refit the sampling mean and spread, and repeat.
+5. Save weights with their encoder and simulator-fabrication hashes so incompatible artifacts are
+   refused at load time.
+
+The published run used:
+
+| setting | value |
+|---|---:|
+| Learning agent | ER |
+| Population | 48 policies per generation |
+| Generations | 14 |
+| Candidate evaluations | 672 |
+| Training worlds | seeds 11–18 |
+| Shifts per world | 4 |
+| CEM random seed | 0 |
+| Base budget | 120 utility points |
+| Simulated release/candidate rate | 1.8 / 3.6 per hour |
+
+Run the same full configuration under a new artifact label:
+
+```bash
+python scripts/scale_cem.py --population 48 --generations 14 \
+  --sigma-floor 0.05 --label repro_D_672ev_pop48
+```
+
+This is a long run. For a small pipeline smoke test, `python scripts/train_er.py` uses only six
+generations, population 16, and two training seeds; it does not reproduce the published model.
+
+The repository also contains offline and simulator-collected temporal-difference Q-learning
+(`train_q.py` and `train_q_online.py`) and PPO experiments. Those are separate experiments and
+did not produce `er_policy.D_672ev_pop48.json`.
+
+### Evaluation
+
+Evaluation is paired: the heuristic and learned policy see identical seeds, arrivals, patient
+trajectories, and shifts. AER differences are calculated shift by shift, and the reported
+`t = mean(paired differences) / standard error`. This pairing removes much of the simulator's
+large between-shift variance.
+
+The seed ranges have distinct roles:
+
+- **11–18:** CEM training; never use these to claim generalisation.
+- **101–200:** validation/model selection. These worlds were unseen during fitting, but several
+  candidate configurations were compared on them, so this is not an untouched final test set.
+- **201–204:** reserved for fabrication-sensitivity checks.
+- **301–400:** confirmation range, evaluated after selecting the policy.
+
+Routine evaluation runs the paired comparison, fabrication sweep, and shadow-safety check:
+
+```bash
+python scripts/evaluate_er.py --weights artifacts/er_policy.D_672ev_pop48.json
+```
+
+The routine command uses 24 comparison seeds. Use these for the recorded 100-seed comparisons:
+
+```bash
+# Validation/model-selection range
+python scripts/resolve_comparison.py 100 \
+  --weights artifacts/er_policy.D_672ev_pop48.json --seed-start 101
+
+# Untouched confirmation range; also preserves every paired shift in CSV
+python scripts/export_validation.py 100 \
+  --weights artifacts/er_policy.D_672ev_pop48.json --seed-start 301 \
+  --tag D_672ev_pop48.confirm301
+
+# Full nine-metric report against the shipped heuristic
+python scripts/scorecard.py --weights artifacts/er_policy.D_672ev_pop48.json
+```
+
+### ER/AER results
+
+On the 100-world validation range (seeds 101–200), the two policies shared 689 complete ER
+shift episodes:
+
+| metric | heuristic | published ER policy |
+|---|---:|---:|
+| Average Episode Reward (AER) | 713.93 | **782.25** |
+| Relative AER change | — | **+9.6%** |
+| Paired t-ratio | — | **5.08** |
+| Better shifts | — | 390 / 689 |
+| Allocation efficiency | 79.2% | 83.7% |
+| Beds unallocated | 6.4% | 7.5% |
+| Burn rate | 53.8% | 50.2% |
+| Unplanned abandonments | 0 | 0 |
+
+The separate confirmation range (seeds 301–400) reported model AER **785.56**, **+10.0%**
+against the heuristic, with `t = 5.32`. The learned policy was better on 371 / 689 shifts
+(53.8%; sign-test `p = 0.044`). The magnitude improvement is therefore driven partly by larger
+gains on a subset of shifts, not uniform improvement on every shift.
+
+These are simulator results, not evidence of improved patient outcomes. The simulator's arrival
+process, deterioration trajectories, and outcome model are fabricated, and the reward points
+still await clinical sign-off. The result only says that this policy paced the simulated ER
+budget better than the shipped heuristic under the evaluated worlds.
+
+### Tests
+
+The automated suite covers feature encoding, action masking, policy loading/version refusal,
+reward and episode construction, Q-learning/PPO mechanics, paired evaluation, shadow safety,
+auction invariants, API behavior, and scenario regressions.
+
+```bash
+python -m pytest
+python -m pytest tests/test_qlearn.py tests/test_ppo.py tests/test_api_policy.py
+```
 
 ## CLI
 
@@ -118,9 +242,15 @@ them into the `fabrication_version` stamped on each trained artifact.
 
 | script | does |
 |---|---|
-| `train_q.py` | offline Q-learning fit on the persisted transition dataset |
-| `evaluate_er.py` | held-out paired comparison for the shipped policy artifact |
-| `export_input_csv.py`, `export_output_csv.py` | dataset export helpers for validation and offline analysis |
+| `train_er.py` | small CEM training smoke run |
+| `scale_cem.py` | full CEM fit plus a 100-seed paired comparison |
+| `evaluate_er.py` | routine paired comparison, fabrication sweep, and shadow check |
+| `resolve_comparison.py` | configurable full-size paired comparison |
+| `export_validation.py` | paired per-shift results and aggregate statistics |
+| `scorecard.py` | nine-metric comparison against the heuristic |
+| `train_q.py`, `train_q_online.py` | offline and simulator-collected TD Q-learning experiments |
+| `train_ppo.py` | PPO experiment with held-out probes |
+| `export_input_csv.py`, `export_output_csv.py` | validation and offline-analysis CSV helpers |
 
 ## Layout
 
@@ -134,5 +264,3 @@ db/migrations 091 allocation schema · 092 vitals oxygen flags · 093 forecast r
 scenarios/    ward_crash.yaml, step_down.yaml
 artifacts/    the published policy
 ```
-
-
