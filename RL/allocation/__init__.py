@@ -1,10 +1,5 @@
 """HOSPILOT allocation auction.
 
-Implements the framework specified in ``RL-Steps.md``, ``RL_STEPS_END_TO_END.md`` and
-``AGENT_BUDGET.md``. Those documents are normative: no component, cap, weight, formula or
-mechanism is changed here. See ``BUILD_SPEC.md`` for the input inventory and the assumption
-register, and its section 9 for open flags.
-
 Layering — a module may import downward only::
 
     profiles/   resource-type configuration (the multi-use-case seam)

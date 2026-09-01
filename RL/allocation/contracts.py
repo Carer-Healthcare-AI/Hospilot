@@ -1,22 +1,7 @@
 """Frozen types that cross layer boundaries. Imports nothing else from the package.
 
-Three invariants are enforced here rather than by convention, because every one of them has
-already been got wrong somewhere in the source documents:
-
-1. **Absent is not zero.** ``Signal.value is None`` means the input was missing.
-   ``RL_STEPS_END_TO_END.md`` D.0: *"A missing factor is dropped, never treated as zero. Zero
-   means 'this patient is fine', which would rank an untested patient above a tested one."*
-   A ``float`` field could not express the difference; ``Signal`` can.
-
-2. **Caps carry their own sign.** Alternative Availability is ``-20`` and Resource Stress is
-   ``-10``. Points are ``cap * score`` with ``score`` in ``[0, 1]``, so they come out negative
-   and the utility is a plain sum. ``D.0`` writes the utility with minus signs in front of
-   both, but Appendix C sums the already-negative values (45.4 + 23.7 + 15.4 + 16.7 + 11.2 +
-   5.3 - 2.4 - 8.2 = 107.1). Following the prose would double-negate them.
-
-3. **Components are scored per agent kind.** ``Operational`` (D.5) and ``Waiting/Delay`` (D.3)
-   are defined differently for a surgical bidder than a medical one — that is the framework's
-   design, not an accommodation. ``AgentKind`` is therefore in the ``Component`` signature.
+This module keeps the boundary contracts explicit so values that cross between ingest,
+features, utility, budget, and auction layers remain stable and well typed.
 """
 
 from __future__ import annotations
@@ -32,12 +17,7 @@ from typing import Mapping, Protocol, Sequence
 
 
 class AgentKind(str, Enum):
-    """A bidding department.
-
-    ``ICU`` is present because RL-Steps section 3 gives ICU internal demand a TTL, but never
-    models it as a bidder. Whether it bids and holds a budget is AGENT_BUDGET open decision 3
-    (BUILD_SPEC F-12) — unresolved, so it is declared but not yet eligible in any profile.
-    """
+    """A bidding department."""
 
     ER = "er"
     OT = "ot"
@@ -79,13 +59,7 @@ class ResourceType(str, Enum):
 
 
 class AuctionMode(str, Enum):
-    """Why this auction is running.
-
-    Only ``LIVE`` holds a bed, decrements a real budget, and is valid RL training data.
-    BUILD_SPEC section 1 of the trigger decision: without this column, hand-fired test runs
-    are indistinguishable from real allocations afterwards, and the blocked models in
-    section 6.2 would train on auctions where no bed was ever held.
-    """
+    """Why this auction is running."""
 
     LIVE = "live"
     SIMULATION = "simulation"
@@ -108,7 +82,7 @@ class TriggerSource(str, Enum):
 
 
 class ComponentName(str, Enum):
-    """The eight utility components of RL_STEPS_END_TO_END.md section 2."""
+    """The eight utility components used in the auction scoring model."""
 
     CLINICAL_BENEFIT = "clinical_benefit"
     URGENCY = "urgency"
@@ -506,7 +480,7 @@ class ReleaseEvent:
 
     A real predicted discharge, a CDC row, or a hand-fired test query all become one of
     these. ``auction_key`` is derived from resource plus release-time bucket so a re-firing
-    prediction cannot open two auctions on one bed (RL_STEPS_END_TO_END.md section 7).
+    prediction cannot open two auctions on one bed.
     """
 
     event_id: str
@@ -687,9 +661,8 @@ class Decision:
 class Bid:
     """One agent's position in one round. Losers and withdrawals are recorded too.
 
-    RL_STEPS_END_TO_END.md sections 23-24: both a winning and a losing episode are needed,
-    *"which is why the log must record the losers' bids and utilities, not only the
-    winner's."*
+    The log must record both a winning and a losing position so the outcome remains
+    auditable and comparable across the whole auction.
     """
 
     auction_id: str
@@ -743,9 +716,8 @@ class RoundState:
 class BudgetState:
     """One row of ``allocation.agent_budget`` — a department's capacity for one shift.
 
-    All four factors are stored, not just the product: a budget with no record of which
-    factor moved it is unauditable and cannot be re-derived after a cap change
-    (AGENT_BUDGET.md section 10).
+    All four factors are stored, not just the product, so the budget can be audited and
+    re-derived after a cap or rule change.
     """
 
     agent: AgentKind

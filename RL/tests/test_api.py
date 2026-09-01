@@ -151,12 +151,7 @@ def test_a_scenario_is_addressed_by_name(client):
 
 
 def test_every_response_says_it_is_neither_persisted_nor_trainable(client):
-    """F-01 and F-02 travel with the payload rather than living only in a document.
-
-    An API response is the form in which this system is most likely to be consumed by someone
-    who has not read ``RL_READINESS.md``. The two facts that most change how a number should
-    be used — nothing is stored, no episode can complete — belong in the response.
-    """
+    """API responses should explicitly mark the run as non-persistent and non-trainable."""
     body = client.post("/auction", json={}).json()
     assert body["audit"]["persisted"] is False
     assert body["reward"]["trainable"] is False

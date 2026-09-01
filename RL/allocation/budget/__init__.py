@@ -5,18 +5,9 @@
     Patient Utility  =  how valuable this bed is for this patient
     Priority Budget  =  how much negotiating capacity this department may spend this shift
 
-Governed by ``AGENT_BUDGET.md`` v0.3, which supersedes ``RL_STEPS_END_TO_END.md`` section 4.
-Base is derived from target win counts rather than declared, Criticality is dropped, Scarcity
-is global, and Fairness is 1.0 until the auction log exists.
-
-The whole mechanism is judged by one test (AGENT_BUDGET section 2)::
-
-    A department that bids its ceiling on every case
-    must run out before the shift ends.
-
-If it does not, bidding maximum is free, the RL will learn to do exactly that, and the budget
-is decoration. RL-Steps' own 1000/800/700 fails that test at roughly 8 % burn — a factor of
-twelve. :func:`~allocation.budget.ledger.burn_band` is how it stays checked.
+Budget derivation is based on bid pressure, scarcity and fairness constraints, and the
+current shift state. :func:`~allocation.budget.ledger.burn_band` is the guardrail that
+keeps the spend within a healthy working band.
 """
 
 from allocation.budget.base import BaseBudget, derive_all, derive_base
