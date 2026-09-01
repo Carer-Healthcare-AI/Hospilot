@@ -11,7 +11,7 @@ from llm_client import llm_chat
 from db.hasura import hasura
 from workflows.graph.prefetch import PREFETCH_TASK_RUNNERS
 from workflows.strategies import (
-    strategy_catalogue_text, is_valid_strategy, default_strategy_id,
+    strategy_catalogue_text, is_valid_strategy,
 )
 from schemas.types import SubAgent, Task
 
@@ -1525,21 +1525,25 @@ Constraints: "{constraints}"
 Plan ONLY the agent graph -- which agents run and how they connect. Do NOT include
 sub_agents or tasks (those are planned in later stages).
 
-Also choose ONE execution strategy that governs how agents coordinate when several
-run in the same level. Pick the id of exactly one strategy from this list:
+Execution strategies govern how agents coordinate when several run in the SAME level
+(a level = agents with no dependency between them, so they run together). Choose per agent
+from this list:
 {strategy_catalogue}
-Default to "common_goal" unless several agents clearly contend for the SAME scarce
-resource (then "bidding") or independently produce competing solutions to the same
-goal (then "competing").
+On each agent, set "strategy" to the id whose "use when" fits THAT agent's role in its
+level, or omit it to inherit the default (the strategy the catalogue marks as the default).
+Decide strictly by matching each strategy's "use when" to the situation -- do not assume
+anything beyond what the catalogue states. Most agents just inherit the default; only tag an
+agent when its own "use when" condition is clearly met (e.g. it contends with a sibling in
+the same level for one scarce unit).
 
 Return ONLY valid JSON, no markdown:
 {{
   "understood_goal": "one sentence summary",
   "priority": "urgent | high | normal",
-  "strategy": "<one strategy id from the list above>",
   "agents": [
     {{"id": "<agent_id from available list>", "label": "<label>", "color": "<color>",
       "role": "what this agent does in this pipeline",
+      "strategy": "<one strategy id from the list above whose 'use when' fits THIS agent, or omit to inherit the default>",
       "task_type": "<bed_agent: availability_check|bed_reservation|bed_cleaning; icu_agent: capacity_check|full_analysis; billing_agent: patient_billing|initiate_billing; omit otherwise>",
       "bed_limit": "<integer if the user gave an explicit bed/patient count, else omit>"}}
   ],
@@ -1602,13 +1606,15 @@ async def generate_agents_and_edges(
     pipeline = json.loads(text)
     pipeline.setdefault("agents", [])
     pipeline.setdefault("edges", [])
-    # Validate the chosen execution strategy against the config allowlist; fall
-    # back to the default when the LLM omits it or names one that isn't registered.
-    chosen = pipeline.get("strategy")
-    pipeline["strategy"] = chosen if is_valid_strategy(chosen) else default_strategy_id()
-    if pipeline["strategy"] != chosen:
-        logger.info("strategy %r invalid/missing -> default %r", chosen, pipeline["strategy"])
+    # Execution strategy is now chosen PER AGENT (the builder resolves it per level);
+    # the JSON's default: true strategy is the global default, so no pipeline-level
+    # strategy is required. Drop any per-agent strategy the LLM invented that isn't a
+    # real id -- an absent/invalid tag simply inherits the default at build time. A
+    # top-level pipeline["strategy"], if the LLM still emits one or an old snapshot
+    # carries one, is left untouched and honoured by the builder as the fallback default.
     for a in pipeline["agents"]:
+        if "strategy" in a and not is_valid_strategy(a.get("strategy")):
+            a.pop("strategy", None)
         a.pop("sub_agents", None)  # stages 2-3 own these
 
     # Agent-level edge fixes
