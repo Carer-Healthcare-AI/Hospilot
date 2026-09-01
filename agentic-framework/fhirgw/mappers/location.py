@@ -37,9 +37,9 @@ def to_fhir(bed: dict) -> Location:
         if bed.get(key) is not None:
             exts.append(X.ext_string(url, bed[key]))
     if bed.get("proximity") is not None:
-        exts.append(X.ext_int(X.EXT_BED_PROXIMITY, bed["proximity"]))
+        X.append_ext(exts, X.ext_int(X.EXT_BED_PROXIMITY, bed["proximity"]))
     if bed.get("floor") is not None:
-        exts.append(X.ext_int(X.EXT_BED_FLOOR, bed["floor"]))
+        X.append_ext(exts, X.ext_int(X.EXT_BED_FLOOR, bed["floor"]))
     if bed.get("natural_light") is not None:
         exts.append(X.ext_bool(X.EXT_BED_NATURAL_LIGHT, bed["natural_light"]))
     for feat in (bed.get("features") or []):

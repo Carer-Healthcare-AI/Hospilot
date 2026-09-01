@@ -155,6 +155,8 @@ async def lifespan(app: FastAPI):
     flush_langfuse()
     await close_checkpointer()
     await close_redis()
+    from db.fabric import aclose_client
+    await aclose_client()
     logger.info("Shutdown complete")
 
 

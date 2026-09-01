@@ -114,6 +114,20 @@ async def _search(resource_type: str, params: dict) -> list[dict]:
     return [e["resource"] for e in (bundle.get("entry") or []) if e.get("resource")]
 
 
+async def _search_with_total(resource_type: str, params: dict) -> tuple[list[dict], int | None]:
+    """_search, but also returning Bundle.total so a caller can detect truncation.
+
+    Needed because this server has no usable paging: it ignores _offset (the same
+    request with _offset=0 and _offset=100 returns byte-identical results) and
+    emits only a `self` link, never `next`. So an unfiltered search either returns
+    everything or silently returns a prefix -- and total vs len(entry) is the only
+    signal telling the two apart."""
+    bundle = await _get(resource_type, params)
+    rows = [e["resource"] for e in (bundle.get("entry") or []) if e.get("resource")]
+    total = bundle.get("total")
+    return rows, (total if isinstance(total, int) else None)
+
+
 def _parse(model_cls, raw_list: list[dict], label: str) -> list:
     out = []
     for raw in raw_list:
@@ -145,6 +159,12 @@ async def search_locations(params: dict) -> list[Location]:
 
 async def search_observations(params: dict) -> list[Observation]:
     return _parse(Observation, await _search("Observation", params), "Observation")
+
+
+async def search_observations_with_total(params: dict) -> tuple[list[Observation], int | None]:
+    """search_observations + Bundle.total, for the unfiltered bulk vitals read."""
+    raw, total = await _search_with_total("Observation", params)
+    return _parse(Observation, raw, "Observation"), total
 
 
 async def search_organizations(params: dict) -> list[Organization]:

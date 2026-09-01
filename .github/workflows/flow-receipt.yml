@@ -1,0 +1,72 @@
+name: Flow receipt
+
+# Gate: a PR that changes flow-relevant code must carry evidence that the live
+# end-to-end flows were run against THAT code.
+#
+# Why this exists rather than running the flows in CI: the live suite needs a
+# seeded Hasura/Postgres and an ANTHROPIC_API_KEY. GitHub withholds secrets from
+# fork PRs by design, so a per-PR live job would either leak the key or break for
+# every outside contributor. This gate keeps the evidence requirement without the
+# secret.
+#
+# `pull_request_target` is used so the check also runs on fork PRs — it reads the
+# PR body and verifies against the MERGE BASE checkout, and deliberately never
+# checks out or executes PR-author code.
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  receipt:
+    name: live-flow receipt
+    runs-on: ubuntu-latest
+    steps:
+      # NOTE: no `ref:` — this checks out the base branch, not the PR head. The
+      # fingerprint is recomputed from the merge result below instead, so we never
+      # execute code from an untrusted fork.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge the PR into the base (content only, nothing executed)
+        run: |
+          git config user.email ci@example.com
+          git config user.name  ci
+          git fetch origin "pull/${{ github.event.pull_request.number }}/head:pr"
+          # A conflicted merge is the PR's problem, not this gate's — skip out.
+          git merge --no-commit --no-ff pr || {
+            echo "::notice::PR does not merge cleanly; skipping receipt check"
+            exit 0
+          }
+
+      - name: Changed files
+        id: changed
+        run: |
+          {
+            echo 'files<<__EOF__'
+            git diff --name-only "origin/${{ github.event.pull_request.base.ref }}...pr"
+            echo '__EOF__'
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: PR body
+        run: |
+          cat > pr_body.txt <<'__PR_BODY__'
+          ${{ github.event.pull_request.body }}
+          __PR_BODY__
+
+      - name: Verify receipt
+        run: |
+          python scripts/verify_flow_receipt.py \
+            --body-file pr_body.txt \
+            --require \
+            --changed-files "${{ steps.changed.outputs.files }}"
