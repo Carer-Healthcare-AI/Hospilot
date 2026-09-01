@@ -33,3 +33,89 @@ jobs:
       - run: pip install pytest==8.3.3
       - name: Run tests
         run: python -m pytest
+
+  # ── Cross-app unit tests (tests/) ───────────────────────────────────────────
+  # Modules the per-app suites don't reach: the autonomy policy engine and the
+  # idempotency helper (agentic-framework), the FHIR terminology and identifier
+  # helpers (fabric). Each area is a SEPARATE step, not one pytest run: both apps
+  # define a top-level `config`/`db`/`cache`, so a shared process lets one app's
+  # modules shadow the other's.
+  unit:
+    name: tests/ — cross-app units (py3.12)
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: dummy
+      HASURA_URL: http://localhost/v1/graphql
+      HASURA_ADMIN_SECRET: dummy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: System build deps (psycopg)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev gcc
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r agentic-framework/requirements.txt -r fabric/requirements.txt
+      - run: pip install pytest==8.3.3
+      - name: agentic-framework units
+        run: python -m pytest tests/agentic_framework -q
+      - name: fabric units
+        run: python -m pytest tests/fabric -q
+
+  # ── RL / allocation auction ─────────────────────────────────────────────────
+  # A large suite that was already in the tree but never wired into CI. The
+  # engine needs nothing but PyYAML ("no database, no network" — tests/conftest);
+  # the dev extra adds pytest, httpx (fastapi.testclient) and the API/LLM extras
+  # so the api/matcher tests run instead of skipping.
+  rl:
+    name: RL — pytest (py3.12)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: RL
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev,api,llm]"
+      - name: Run tests
+        run: python -m pytest
+
+  # ── Agentic framework: import smoke test ────────────────────────────────────
+  # No unit-test suite for the app itself yet, so this verifies the app and its
+  # packages import cleanly — it catches broken imports that only bite at boot.
+  agentic:
+    name: agentic-framework — import check (py3.11)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agentic-framework
+    env:
+      PYTHONPATH: .
+      # config.py requires these at import time. Dummy values — no real service
+      # is contacted (connections happen in the app lifespan, not at import).
+      ANTHROPIC_API_KEY: dummy
+      HASURA_URL: http://localhost/v1/graphql
+      HASURA_ADMIN_SECRET: dummy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: agentic-framework/requirements.txt
+      - name: System build deps (psycopg)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev gcc
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt
+      - name: Import smoke test
+        run: |
+          python -c "import main; \
+            import messaging.events, messaging.producer, messaging.data_consumer, \
+                   messaging.ack_consumer, messaging.flow_event_relay, \
+                   messaging.initial_sync; \
+            print('agentic-framework imports OK')"

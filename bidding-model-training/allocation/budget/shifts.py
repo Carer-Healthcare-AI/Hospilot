@@ -1,17 +1,8 @@
-"""Shift boundaries. BUILD_SPEC F-17.
+"""Shift boundaries and temporal planning for the budget layer.
 
-**This is the blocking gap in the budget layer.** ``AGENT_BUDGET.md`` section 12.1 lists shift
-boundaries as already available from ``staff_roster``. They are not: that table is
-``(id, area, area_label, role, shift, headcount, assigned_load, load_per_staff, branch_id,
-synced_at)`` — ``shift`` is a **label**, with no start or end timestamp anywhere.
-
-Budget accrual, renewal and the 8-hour agent planning horizon all key off these boundaries, so
-the mapping in ``config/rules/shifts.yaml`` is currently RL-Steps section 20's
-07:00-15:00 / 15:00-23:00 / 23:00-07:00, marked unsigned.
-
-**An unmatched label raises rather than defaulting.** A wrong shift boundary does not fail
-loudly on its own — it silently attributes spend to the wrong shift and corrupts every budget
-row and every burn-rate reading built on them.
+The shift map is configured in ``config/rules/shifts.yaml`` and resolved to concrete time
+windows for each run. An unmatched label raises rather than defaulting, so incorrect shift
+boundaries fail loudly rather than silently corrupting budgeting and burn-rate metrics.
 """
 
 from __future__ import annotations

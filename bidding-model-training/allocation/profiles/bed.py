@@ -1,22 +1,8 @@
-"""What every bed in the family shares.
+"""Shared configuration for the bed-family allocation profiles.
 
-A bed auction is a bed auction: all eight components apply, the round structure is the same,
-and the resource sits on the care ladder in ``config/rules/units.yaml``. What differs between
-an ICU bed and a ward bed is *who may bid*, *how long a bid stays valid*, *how far ahead the
-allocation reaches*, and — critically — *its caps and its budget pool*.
-
-This is a factory rather than a base class because :class:`ResourceProfile` is a frozen
-``slots=True`` dataclass: subclassing one to add defaults fights the dataclass machinery for
-no benefit, while a function that fills in the family defaults reads the same at every call
-site and keeps a single ``ResourceProfile`` type flowing through the engine.
-
-**Caps and budgets are per resource, and this is where that is enforced.** Both
-``caps_config`` and ``budget_config`` are derived from the resource type rather than
-defaulted, so a new bed type cannot silently inherit ICU's eight maxima or draw on ICU's pool
-— it gets a missing-file error instead. That is the intended failure on both counts: the
-maxima were chosen for an ICU bed and never fitted (B.13/BA8), and budgets are denominated in
-utility points, which are only comparable within one caps table. Reusing either would inherit
-a calibration that was never valid, and nothing downstream could detect it.
+Every bed resource follows the same family structure: the same auction rounds, same utility
+components, and the same care-ladder mapping. What differs between bed types is which agents
+are eligible, the resource-specific caps and budgets, and the TTLs for each profile.
 """
 
 from __future__ import annotations
@@ -26,7 +12,7 @@ from typing import Mapping
 from allocation.contracts import AgentKind, ComponentName, ResourceType
 from allocation.profiles.registry import ResourceProfile, UseCaseMatcher
 
-#: All eight apply to every bed. RL_STEPS_END_TO_END.md section 2.
+#: All eight apply to every bed.
 BED_COMPONENTS: tuple[ComponentName, ...] = (
     ComponentName.CLINICAL_BENEFIT,
     ComponentName.URGENCY,

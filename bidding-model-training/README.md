@@ -58,30 +58,18 @@ refused at load.
 heuristic allocates, the learned choices are logged. Acting needs `--live-policy`, which refuses
 to run while `auction.yaml`'s `safety_constraints` is empty.
 
-## The model
+## Training and evaluation
 
-`artifacts/er_policy.D_672ev_pop48.json` — ER bidding policy, format `rl-linear-v1`.
-
-Fitted by cross-entropy method: population 48 × 14 generations = 672 evaluations, training seeds
-11–18. Scored on **100 held-out seeds (101–200), 689 paired shifts**, identical arrival streams:
-
-| | heuristic | model |
-|---|---|---|
-| Average episode reward | 713.93 | **782.25** (+9.6%, t = 5.08) |
-| Better on | — | 390 / 689 shifts |
-| Allocation efficiency | 79.2% | 83.7% |
-| Beds unallocated | 6.4% | 7.5% |
-| Burn rate | 53.8% | 50.2% |
-| Abandonments | 0 | 0 |
+The learning loop in this repo is the Q-learning path: fit a value function from persisted
+transitions, then serve the resulting policy through the same auction runtime.
 
 ```bash
-python -m allocation --policy artifacts/er_policy.D_672ev_pop48.json
-python scripts/evaluate_er.py --weights artifacts/er_policy.D_672ev_pop48.json
+python scripts/train_q.py --agent er
 ```
 
-Those numbers are a paired comparison against the heuristic inside a seeded simulator whose
-arrival process, deterioration trajectories and outcome model are invented. They say which
-policy paces a budget better. They say nothing about patient outcomes.
+The offline learner reads the saved transition dataset, checks coverage and convergence, and
+writes the learned weights artifact for the agent policy. The runtime then consumes the same
+policy format through the allocation engine and the standard CLI/API entrypoints.
 
 ## CLI
 
@@ -130,12 +118,9 @@ them into the `fabrication_version` stamped on each trained artifact.
 
 | script | does |
 |---|---|
-| `train_er.py` | CEM policy search for ER |
-| `run_training.py` | same run, progress flushed to a file line by line |
-| `evaluate_er.py` | held-out paired comparison, fabrication sweep, shadow check |
-| `train_q_online.py` | TD learning under ε-greedy exploration, ε 0.60 → 0.05 |
-| `train_ppo.py` | one PPO seed per invocation (needs `numpy`, `scipy`) |
-| `train_q.py`, `export_input_csv.py`, `export_output_csv.py` | read a transition corpus / validation CSV that is not published here |
+| `train_q.py` | offline Q-learning fit on the persisted transition dataset |
+| `evaluate_er.py` | held-out paired comparison for the shipped policy artifact |
+| `export_input_csv.py`, `export_output_csv.py` | dataset export helpers for validation and offline analysis |
 
 ## Layout
 
@@ -152,29 +137,3 @@ The tenant SQL migrations (091 allocation schema · 092 vitals oxygen flags · 0
 retention · 094 the decision behind the bid) live in `agentic-framework/db/migrations/` and are
 applied with `agentic-framework/scripts/migrate_all_tenants.py`.
 
-## Documents
-
-[RL-Steps.md](RL-Steps.md), [RL_STEPS_END_TO_END.md](RL_STEPS_END_TO_END.md) and
-[AGENT_BUDGET.md](AGENT_BUDGET.md) are the framework — normative; no formula or mechanism is
-changed in code. [BUILD_SPEC.md](BUILD_SPEC.md) is the bridge and holds the `B.n` / `F-n`
-identifiers cited throughout the source. Also: [RL_READINESS.md](RL_READINESS.md),
-[RL_TRAIN_VALIDATE_INFER.md](RL_TRAIN_VALIDATE_INFER.md),
-[RL_EVAL_CHECKLIST.md](RL_EVAL_CHECKLIST.md), [RL_METRIC.md](RL_METRIC.md),
-[VALIDATION_EXPLAINED.md](VALIDATION_EXPLAINED.md),
-[RL_EXPERIMENTS_LOG.md](RL_EXPERIMENTS_LOG.md), [RL_FIXES.md](RL_FIXES.md),
-[PPO_EXPERIMENT_PLAN.md](PPO_EXPERIMENT_PLAN.md),
-[PPO_DIAGNOSTIC_HANDOVER.md](PPO_DIAGNOSTIC_HANDOVER.md),
-[INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md), [BACKEND_HANDOVER.md](BACKEND_HANDOVER.md),
-[LIVE_FLOW.md](LIVE_FLOW.md), [PRODUCTION_CHECKLIST.md](PRODUCTION_CHECKLIST.md).
-
-## Unsigned and fabricated
-
-Stated here because the code states it at runtime.
-
-- `Config.unsigned` names every rule table still on assumed values — a default run reports 12.
-- Reward point values are RL-Steps' own and have never been fitted.
-- `caps_icu_bed.yaml` is the only caps file chosen for its resource; the other five are copies.
-- `auction.yaml`'s `safety_constraints` is empty and marked `undeclared`.
-- The simulator's arrival process, deterioration trajectories and outcome model are invented.
-- `no_mortality` has no structured source, so scored episodes are marked incomplete.
-- The shipped `DataSource` serves three invented fixture patients.
