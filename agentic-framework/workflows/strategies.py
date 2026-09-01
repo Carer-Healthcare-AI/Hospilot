@@ -1,7 +1,7 @@
 """Execution-strategy registry + coordination handlers.
 
-How agents in one execution *level* coordinate (common goal, bidding, competing,
-…) is selected by the planner from ``strategies.json`` -- the JSON is the
+How agents in one execution *level* coordinate (common goal, bidding) is selected
+by the planner from ``strategies.json`` -- the JSON is the
 allowlist/registry and each entry NAMES a handler. The executable coordination
 logic lives here, keyed by that handler name, so adding a new strategy is
 
@@ -143,7 +143,24 @@ async def rl_bidding(units, state: dict) -> dict:
 
     winner = next((u for u in units if u.node_id == decision["node"]), None) if decision else None
     if winner is None:
-        return await common_goal(units, state)
+        import os
+        if os.getenv("ALLOCATION_TEST_BYPASS", "").strip().lower() not in ("1", "true", "yes"):
+            return await common_goal(units, state)
+        # TEST BYPASS: the engine gave no decision -> run a local contest so a bid is visible
+        # in the flow without the RL engine or seeded patients. Highest propose() score wins
+        # (ties break by level order). Unset ALLOCATION_TEST_BYPASS to restore real behaviour.
+        scored = []
+        for u in units:
+            try:
+                p = await u.propose(state)
+            except Exception:  # noqa: BLE001
+                p = {"score": 0.0}
+            scored.append((float(p.get("score", 0.0) or 0.0), u))
+        scored.sort(key=lambda t: t[0], reverse=True)
+        winner = scored[0][1]
+        decision = {"node": winner.node_id, "award": None, "auction": {
+            "resource": "icu_bed", "winner": winner.node_id, "outcome": "test_heuristic",
+            "ladder": [{"node": u.node_id, "score": s} for s, u in scored]}}
 
     # Surface the bid ladder + the award to the live flow view over the session WebSocket
     # (best-effort). The award (advisory) names the winning patient for the reservation path.
@@ -178,9 +195,5 @@ async def rl_bidding(units, state: dict) -> dict:
 STRATEGY_HANDLERS["common_goal"] = common_goal
 STRATEGY_HANDLERS["bidding"] = rl_bidding
 STRATEGY_HANDLERS["rl_bidding"] = rl_bidding
-# 'competing' is listed in strategies.json but points its handler at common_goal
-# for now, so selecting it degrades gracefully (run-all-and-merge) until real
-# candidate-scoring semantics land. When they do: register a `competing` handler
-# here and flip strategies.json's "competing".handler back to "competing".
-# get_handler() still fails LOUD for genuine config drift -- a JSON handler name
-# that matches nothing registered here.
+# get_handler() fails LOUD for genuine config drift -- a JSON handler name that
+# matches nothing registered here.

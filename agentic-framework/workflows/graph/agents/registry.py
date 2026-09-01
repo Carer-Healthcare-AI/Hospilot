@@ -5,7 +5,7 @@ fall through to a completed stub in graph.nodes._dispatch_body. appointment_agen
 (and any other DB-registry agent) routes to the generic registry body.
 """
 
-from workflows.graph.agents.bed import run_bed_body
+from workflows.graph.agents.bed import run_bed_body, bid_bed
 from workflows.graph.agents.clinical import run_icu_body, run_discharge_body, run_staff_body
 from workflows.graph.agents.ambulance import run_ambulance_body
 from workflows.graph.agents.registry_agent import run_registry_body
@@ -31,4 +31,13 @@ AGENT_BODIES = {
     "patient_verification_agent": run_patient_verification_body,
     # Registry-driven agents -- generic body, catalog from the DB
     "appointment_agent":    run_registry_body,
+}
+
+# Optional per-agent bid hooks for the 'bidding' execution strategy
+# (services.strategies). An agent absent here bids a neutral 0.0 (abstains), so
+# bidding works across any flow without every agent implementing a hook. The bid
+# VALUE is agent-specific; the interface (sid, ctx) -> {"score": float, ...} is
+# uniform. See graph.nodes._bid_for.
+AGENT_BID_HOOKS = {
+    "bed_agent": bid_bed,
 }
