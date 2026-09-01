@@ -144,11 +144,13 @@ allocation/   contracts · cli · profiles · config · ingest · features · ut
               auction · policy · pathway · reward · rl · sim · trigger · audit · api
 scripts/      trainers, evaluation, CSV export
 tests/        21 modules, 581 tests
-db/migrations 091 allocation schema · 092 vitals oxygen flags · 093 forecast retention
-              094 the decision behind the bid
 scenarios/    ward_crash.yaml, step_down.yaml
 artifacts/    the published policy
 ```
+
+The tenant SQL migrations (091 allocation schema · 092 vitals oxygen flags · 093 forecast
+retention · 094 the decision behind the bid) live in `agentic-framework/db/migrations/` and are
+applied with `agentic-framework/scripts/migrate_all_tenants.py`.
 
 ## Documents
 

@@ -33,7 +33,8 @@ reading the wrong one is a wrong number rather than a plausible one.
 **What Step 12 still owes, and why it stopped here.** The step is two things: the seam (done)
 and the Tier A database wiring (not started). There is no database in this repository — no
 `hospilot` schema, no psycopg / httpx / asyncpg / GraphQL dependency, no credentials, and
-`db/migrations/` holds only `allocation`'s own three files. A Hasura reader written against a
+`allocation`'s own migrations (now in `agentic-framework/db/migrations/`) are all that exists.
+A Hasura reader written against a
 schema nobody here can query, run or test would be precisely the "plausible number valid for
 nothing" this file keeps refusing. Steps 13–15 all sit behind it.
 
@@ -423,7 +424,7 @@ Still nothing live: no database adapter, no httpx / psycopg / asyncpg / GraphQL 
 ### Step 12b · Tier A database wiring — **blocked: no database**
 
 Not started, and not startable here. No `hospilot` schema, no driver dependency, no
-credentials; `db/migrations/` holds only `allocation`'s own three files. The seam above is what
+credentials; `allocation`'s own migrations now live in `agentic-framework/db/migrations/`. The seam above is what
 this plugs into — `hospital_state(unit, at)` and `patient_data(candidate, at)`, two methods.
 
 - [ ] Tier A wiring: vitals · labs · bed state · forecasts · ER pressure · isolation · nursing ·
