@@ -16,8 +16,12 @@ while the routes here answer the list, filter and computed questions a per-recor
 different questions.
 """
 
+import logging
+
 from clients import fhir_client as fc
 from input_transform import transform as tx
+
+logger = logging.getLogger("clinical")
 
 PAGE = 200   # DB caps _count at 200
 
@@ -172,6 +176,62 @@ async def latest_vitals(patient_token: str) -> dict | None:
     if not readings:
         return None
     return max(readings, key=lambda r: (r.get("recorded_at") or ""))
+
+
+async def latest_vitals_bulk(tokens: list[str] | None = None) -> dict:
+    """{patient_token: latest vital reading} for many patients in ONE upstream call.
+
+    Why this exists: /vitals/latest is per-patient because `patient` is the only
+    patient-scoping search param the upstream FHIR server advertises (its
+    CapabilityStatement lists exactly patient, category, code, interpretation,
+    _count -- there is no subject, _has, $lastn, $export or batch-Bundle support,
+    all verified 404). Callers that need N patients therefore fired N calls: the
+    ICU agent's escalation sweep runs one per admission, hospital-wide and
+    uncapped, which is the single largest source of Fabric traffic.
+
+    An UNFILTERED vital-signs search is the only bulk read available, and it is a
+    pattern already in use here -- critical_vitals() below does the same thing
+    with an interpretation filter. We group by subject and keep each patient's
+    newest reading, which reproduces latest_vitals() exactly (verified against 27
+    patients: identical id and recorded_at, zero mismatches).
+
+    TRUNCATION is the hazard. This server cannot page: _offset is silently
+    ignored and only a `self` link is returned, never `next`. So if the hospital
+    has more vital Observations than one response carries, we get a prefix with
+    no error -- and a caller would see healthy-looking data for a patient whose
+    critical reading fell off the end. `complete` reports whether Bundle.total
+    matched what we received; when it is False the caller MUST fall back to
+    per-patient reads rather than trust this map.
+
+    Returns {"vitals": {token: reading}, "complete": bool, "total": int|None,
+             "received": int} -- shaped so the truncation signal cannot be
+    ignored by accident the way a bare dict's missing keys would be.
+    """
+    obs, total = await fc.search_observations_with_total(
+        {"category": "vital-signs", "_count": PAGE})
+    received = len(obs)
+    complete = (total is None) or (received >= total)
+    if not complete:
+        logger.warning(
+            "bulk vitals TRUNCATED -- upstream reports total=%s but returned %d "
+            "observations and supports no paging; callers must fall back to "
+            "per-patient reads", total, received)
+
+    latest: dict[str, dict] = {}
+    for group in tx.group_vitals_by_reading(obs).values():
+        r = tx.vital(group)
+        token = (r or {}).get("patient_token")
+        if not r or not token:
+            continue
+        cur = latest.get(token)
+        if cur is None or (r.get("recorded_at") or "") > (cur.get("recorded_at") or ""):
+            latest[token] = r
+
+    if tokens:
+        wanted = set(tokens)
+        latest = {t: v for t, v in latest.items() if t in wanted}
+
+    return {"vitals": latest, "complete": complete, "total": total, "received": received}
 
 
 async def critical_vitals() -> list[dict]:

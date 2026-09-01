@@ -1,4 +1,5 @@
-﻿import json
+﻿import asyncio
+import json
 import logging
 import re
 import httpx
@@ -1782,6 +1783,52 @@ class HasuraClient:
 
     async def get_latest_vitals(self, patient_token: str) -> dict | None:
         return await fget("/vitals/latest", patient=patient_token)
+
+    async def get_latest_vitals_bulk(self, patient_tokens: list[str]) -> dict[str, dict]:
+        """{token: latest vitals} for many patients in ONE Fabric call.
+
+        Replaces N calls to /vitals/latest. Fabric can only do this as an
+        unfiltered read (the upstream FHIR server scopes Observations by a single
+        `patient` param and supports no batch form), and that read cannot be
+        paged -- so it reports `complete`. When it comes back False the map is a
+        prefix and we must not present it as the whole truth: fall back to
+        per-patient reads for whatever is missing, which is slow but correct.
+        Vitals decide escalation, so a silently-absent critical reading is the
+        one outcome worth paying for."""
+        if not patient_tokens:
+            return {}
+        try:
+            resp = await fget("/vitals/latest-bulk", patients=",".join(patient_tokens))
+        except Exception as exc:  # noqa: BLE001 -- bulk is an optimization, never a hard dep
+            logger.warning("bulk vitals failed, falling back to per-patient: %s", exc)
+            resp = None
+
+        out: dict[str, dict] = {}
+        complete = False
+        if isinstance(resp, dict):
+            out = {t: v for t, v in (resp.get("vitals") or {}).items() if v}
+            complete = bool(resp.get("complete"))
+
+        missing = [t for t in patient_tokens if t not in out]
+        # A truncated read means "absent" is not trustworthy, so re-check every
+        # missing token. A complete read means absent == genuinely no vitals, and
+        # re-fetching those would put back the N calls this exists to remove.
+        if missing and not complete:
+            logger.warning("bulk vitals incomplete -- per-patient fallback for %d token(s)",
+                           len(missing))
+            sem = asyncio.Semaphore(10)
+
+            async def _one(tok: str) -> None:
+                async with sem:
+                    try:
+                        v = await fget("/vitals/latest", patient=tok)
+                        if v:
+                            out[tok] = v
+                    except Exception:  # noqa: BLE001
+                        pass
+
+            await asyncio.gather(*[_one(t) for t in missing])
+        return out
 
     async def get_vital_observation(self, observation_id: str) -> dict | None:
         try:

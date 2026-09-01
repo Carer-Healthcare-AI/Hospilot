@@ -128,6 +128,8 @@ async def main() -> None:
         await worker.run()
     finally:
         flush_langfuse()
+        from db.fabric import aclose_client
+        await aclose_client()
 
 
 if __name__ == "__main__":

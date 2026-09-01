@@ -426,6 +426,14 @@ async def _drive(graph, payload, config, session_id: str | None = None,
                 return
         logger.exception("session graph errored  config=%s", config.get("configurable"))
     finally:
+        # Drop this pass's memoized Fabric reads (db.fabric._flow_memo). Cleared
+        # per pass, not per flow: a parked flow can sit at an approval for the
+        # 30min reaper timeout, and the next pass must re-read live clinical data
+        # instead of serving the pre-approval snapshot. Within a pass the memo
+        # still collapses the cross-agent and re-execution refetches.
+        if session_id:
+            from db.fabric import clear_flow_memo
+            clear_flow_memo(session_id)
         flush_langfuse()
         if _log_session_id:
             from flow_log import log_session_end
