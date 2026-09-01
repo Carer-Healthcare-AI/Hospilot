@@ -66,7 +66,7 @@ def visit_to_fhir(visit: dict) -> Encounter:
     if visit.get("status") is not None:
         exts.append(X.ext_string(X.EXT_VISIT_RAW_STATUS, visit["status"]))
     if visit.get("triage_score") is not None:
-        exts.append(X.ext_int(X.EXT_VISIT_TRIAGE_SCORE, visit["triage_score"]))
+        X.append_ext(exts, X.ext_int(X.EXT_VISIT_TRIAGE_SCORE, visit["triage_score"]))
 
     fhir_status = T.encounter_status_to_fhir(visit.get("status"))
     kwargs: dict = {

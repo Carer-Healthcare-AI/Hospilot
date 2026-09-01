@@ -52,8 +52,23 @@ def ext_string(url: str, value) -> dict:
     return {"url": url, "valueString": str(value)}
 
 
-def ext_int(url: str, value) -> dict:
-    return {"url": url, "valueInteger": int(value)}
+def ext_int(url: str, value) -> dict | None:
+    """valueInteger, tolerant of raw HIS pass-throughs.
+
+    Rows reaching us through the Redis projection are raw HIS values: numbers
+    arrive as strings ("1") and nulls as the literal string "NULL" (same shape
+    the OT rules handle in graph.advisory_evaluators._ot_val). A bare int() on
+    "NULL" raised ValueError inside the Location mapper, which killed the whole
+    ICU agent -- every available-ICU-bed row carries floor="NULL". An
+    unparseable value means "not reported", so the extension is omitted: the
+    caller drops a None extension rather than emitting a bogus 0.
+    """
+    if value is None or str(value).strip().upper() in ("", "NULL", "NONE"):
+        return None
+    try:
+        return {"url": url, "valueInteger": int(float(str(value).strip()))}
+    except (TypeError, ValueError):
+        return None
 
 
 def ext_bool(url: str, value) -> dict:
@@ -62,6 +77,12 @@ def ext_bool(url: str, value) -> dict:
 
 def ext_decimal(url: str, value) -> dict:
     return {"url": url, "valueDecimal": value}
+
+
+def append_ext(exts: list, ext: dict | None) -> None:
+    """Append an extension, skipping the builders' None ("not reported")."""
+    if ext is not None:
+        exts.append(ext)
 
 
 _VALUE_FIELDS = (

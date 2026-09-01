@@ -10,6 +10,7 @@ from cache import redis as cache
 from db.hasura import hasura
 from fhirgw import repository as repo
 from fhirgw.mappers._common import ref_id, reason_text, bare_id
+from agents._shared.vitals_bulk import bulk_vitals_observations, tokens_from_encounters
 from agents.er.service import triage_er_visits
 from api.routes.ws import broadcast
 
@@ -89,10 +90,15 @@ async def triage_er_patients(inp: ErTriageInput) -> list:
     now = datetime.now(timezone.utc)
     # inp.visits are FHIR Encounter (EMER) JSON; re-parse and fetch vitals as FHIR Observations.
     encounters = [Encounter.model_validate(e) for e in inp.visits]
+    # Vitals for the whole ER census in ONE Fabric call. This loop used to await
+    # repo.latest_vitals() per visit, so triage cost one call per active ER
+    # patient -- 65 serial calls on the reference dataset, and the single largest
+    # contributor to a live flow's Fabric traffic.
+    vitals_by_token = await bulk_vitals_observations(tokens_from_encounters(encounters))
     items = []
     for enc in encounters:
         token = ref_id(enc.subject)
-        vitals = await repo.latest_vitals(token) if token else []
+        vitals = vitals_by_token.get(token, []) if token else []
         arrived = _enc_arrived(enc)
         wait_minutes = 0
         if arrived is not None:

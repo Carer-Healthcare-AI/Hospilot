@@ -21,6 +21,30 @@ async def vitals_latest(patient: str = Query(...)):
     return await clinical.latest_vitals(patient)
 
 
+@router.get("/vitals/latest-bulk", summary="Latest vitals for MANY patients in one call")
+async def vitals_latest_bulk(
+    patients: str | None = Query(
+        None, description="Optional comma-separated patient tokens to restrict the "
+                          "result to. Omit for every patient with vitals."),
+):
+    """One upstream read instead of one per patient.
+
+    `patient` is the only patient-scoping search param this upstream FHIR server
+    supports, so /vitals/latest cannot take a list -- callers needing N patients
+    fired N calls. This does a single unfiltered vital-signs search and groups by
+    subject, which is how /vitals/critical already reads.
+
+    The response carries `complete`. It is False when the upstream reported more
+    Observations than it returned (this server ignores _offset and emits no
+    `next` link, so a big hospital can silently get a prefix). On complete=False
+    the caller MUST fall back to per-patient /vitals/latest for the tokens it
+    still needs -- treating a short map as authoritative would hide a patient's
+    critical reading.
+    """
+    toks = [t.strip() for t in patients.split(",") if t.strip()] if patients else None
+    return await clinical.latest_vitals_bulk(toks)
+
+
 @router.get("/vitals/critical", summary="Vitals currently flagged critical, across all patients")
 async def vitals_critical():
     return await clinical.critical_vitals()

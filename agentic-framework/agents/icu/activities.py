@@ -1,4 +1,5 @@
-﻿import logging
+﻿import asyncio
+import logging
 from dataclasses import dataclass
 
 from temporalio import activity
@@ -11,6 +12,7 @@ from fhirgw import repository as repo
 from fhirgw.mappers import observation as obs_map
 from fhirgw.mappers._common import ref_id
 from agents.icu.service import analyze_icu, rank_icu_admissions, is_critical
+from agents._shared.vitals_bulk import bulk_vitals_observations, tokens_from_encounters
 from util.idem import make_idem_key
 from workflows.temporal.workflow._escalation import start_escalating_approval
 from api.routes.ws import broadcast
@@ -124,21 +126,35 @@ async def analyze_icu_status(inp: IcuAnalysisInput) -> dict:
         bid = _enc_bed_id(enc)
         return bed_by_id.get(bid) if bid else None
 
-    # Fetch vitals (FHIR Observations) for ICU patients
-    icu_with_vitals = []
-    for enc in icu_encs:
-        token  = ref_id(enc.subject)
-        vitals = await repo.latest_vitals(token) if token else []
-        icu_with_vitals.append({"encounter": enc, "vitals": vitals, "bed": _bed_for(enc)})
+    # Vitals for every patient in ONE Fabric read instead of one call per patient.
+    # This used to be two sequential `for` loops each awaiting repo.latest_vitals(),
+    # so cost was 1 Fabric call per admission, hospital-wide and uncapped -- ~300
+    # serial calls (~33s) on a 300-bed hospital, and 85% of one live flow's total
+    # Fabric traffic. The escalation sweep in particular walks EVERY active non-ICU
+    # admission, because any ward patient going critical is a candidate.
+    #
+    # Dedup the tokens first: the same patient can appear on several admissions,
+    # and both loops often want the same person.
+    vitals_by_token = await bulk_vitals_observations(
+        tokens_from_encounters([*icu_encs, *non_encs]))
 
-    # Fetch vitals for non-ICU patients and keep only those with critical readings.
-    # Deduplicate by patient token -- same patient across multiple admissions appears once.
+    def _vitals_for(enc) -> list:
+        token = ref_id(enc.subject)
+        return vitals_by_token.get(token, []) if token else []
+
+    icu_with_vitals = [
+        {"encounter": enc, "vitals": _vitals_for(enc), "bed": _bed_for(enc)}
+        for enc in icu_encs
+    ]
+
+    # Keep only non-ICU patients with critical readings. Deduplicate by patient
+    # token -- same patient across multiple admissions appears once.
     escalation_candidates = []
     critical_vital_ids: list[str] = []
     seen_tokens: set[str] = set()
     for enc in non_encs:
         token  = ref_id(enc.subject)
-        vitals = await repo.latest_vitals(token) if token else []
+        vitals = _vitals_for(enc)
         if vitals and is_critical(vitals):
             if token and token in seen_tokens:
                 continue
