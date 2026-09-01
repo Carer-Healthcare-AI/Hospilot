@@ -37,6 +37,14 @@ def _bidding_context(units) -> str:
     return "Agents running in this step: " + ", ".join(u.node_id for u in units)
 
 
+def _test_bypass() -> bool:
+    """TEST ONLY: when ALLOCATION_TEST_BYPASS is set, let a bidding level run a contest
+    without seeded patients (synthetic candidates + tolerate persist failures). Off by
+    default -- unset the env var to restore real, data-gated behaviour."""
+    import os
+    return os.getenv("ALLOCATION_TEST_BYPASS", "").strip().lower() in ("1", "true", "yes")
+
+
 async def rl_decide_winner(units, state: dict, resource: str | None = None, org_id: str | None = None) -> dict | None:
     """Run one auction over the contending units; return {"node": winning_node_id, "auction":
     <ladder summary>}, or None if it can't decide."""
@@ -72,7 +80,12 @@ async def rl_decide_winner(units, state: dict, resource: str | None = None, org_
             continue
         nom = noms.get(dept)
         if not nom:
-            continue  # no real patient nominated for this department -> it cannot bid
+            if not _test_bypass():
+                continue  # no real patient nominated for this department -> it cannot bid
+            # TEST BYPASS: bid with a synthetic placeholder so a contest runs unseeded.
+            nom = {"department": dept, "candidate_id": f"TEST-{dept}",
+                   "patient_token": f"TEST-{dept}", "admission_id": None,
+                   "visit_id": None, "arrived_at": None, "current_unit": None}
         seen.add(mapped)
         dept_by_node[u.node_id] = dept
         specs.append(nom)
@@ -83,12 +96,17 @@ async def rl_decide_winner(units, state: dict, resource: str | None = None, org_
     try:
         resp = await advise(hasura, query=query, unit=unit,
                             resource=resource, candidate_specs=specs, client=AllocationClient())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("rl_decide_winner: engine auction failed, falling back: %s", exc)
+        return None
+    try:
         async with tenant_transaction(await slug_for_org(org_id)) as execute:
             await persist(resp, execute, trigger_source="flow-bidding")
             await enqueue_observation(execute, resp)
     except Exception as exc:  # noqa: BLE001
-        log.warning("rl_decide_winner failed, falling back: %s", exc)
-        return None
+        log.warning("rl_decide_winner: persist/observe skipped: %s", exc)
+        if not _test_bypass():  # in prod a failed persist suppresses the award; in test, keep the visible bid
+            return None
 
     token_by_dept = {s["department"]: s.get("patient_token") for s in specs}
     winner_agent = resp.get("winner")  # er | ot | ward

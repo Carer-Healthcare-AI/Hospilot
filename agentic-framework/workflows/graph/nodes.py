@@ -6,9 +6,16 @@ agent_completed broadcasts, context construction (incl. _task_plan preplan
 seeding from Redis), failure handling that halts the pipeline, and writing the
 result into state["results"] under the base agent id.
 
-Each agent is wrapped in an AgentUnit whose ``commit`` is the node body; the
-builder adds it directly as a LangGraph node. The flow is whatever the planner
-(LLM) emits -- there is no coordination/arbitration layer.
+An AgentUnit exposes the generic two-phase interface that execution strategies
+(services.strategies) drive:
+
+    await unit.commit(state)        -- run the agent for real (today's node body)
+    await unit.propose(state)       -- compute a bid score with NO side effects
+    await unit.skip(state, reason)  -- emit branch_skipped, return _skipped
+
+The default ``common_goal`` strategy only ever calls ``commit``, so existing
+flows are byte-for-byte unchanged. ``bidding`` calls ``propose`` on every unit,
+then ``commit`` on the winner and ``skip`` on the losers.
 """
 
 import asyncio
@@ -83,10 +90,11 @@ def make_agent_node(cfg: dict) -> "AgentUnit":
 
 
 class AgentUnit:
-    """One agent in an execution level.
+    """One agent in an execution level. Exposes commit/propose/skip for strategies.
 
-    ``commit`` is the node body; ``__call__`` delegates to it so an AgentUnit can
-    be added directly as a LangGraph node without a wrapper.
+    ``commit`` is the original node body verbatim; ``__call__`` delegates to it so
+    an AgentUnit can still be added directly as a LangGraph node (single-strategy
+    / common_goal path) without a wrapper.
     """
 
     def __init__(self, cfg: dict):

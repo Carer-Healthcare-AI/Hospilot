@@ -334,6 +334,29 @@ async def _start_batch(sid: str, critical_patients: list, candidates: list, ta_r
 
 # -- Body ----------------------------------------------------------------------
 
+async def bid_bed(sid: str, ctx: dict) -> dict:
+    """Bid hook for the bidding execution strategy (services.strategies).
+
+    No side effects -- only reads the upstream context the body would act on and
+    returns a contention score. Higher = wants the contested bed(s) more. Scores
+    on demand pressure: how many critical/step-down/escalation patients are
+    waiting upstream, weighted toward acuity (ER critical > ICU escalation >
+    step-down). Returns 0 when this agent has nothing to act on (abstain).
+    """
+    er_critical   = len((ctx.get("er_agent")  or {}).get("critical_patients", []))
+    icu_ctx       = ctx.get("icu_agent") or {}
+    escalation    = len(icu_ctx.get("escalation_candidates", []))
+    step_down     = len(icu_ctx.get("step_down_candidates", []))
+
+    # Acuity weighting: ER critical patients are the most time-sensitive.
+    score = 3.0 * er_critical + 2.0 * escalation + 1.0 * step_down
+    return {
+        "score":   float(score),
+        "demand":  {"er_critical": er_critical, "escalation": escalation, "step_down": step_down},
+        "reason":  "bed contention demand score",
+    }
+
+
 async def run_bed_body(sid: str, ctx: dict) -> dict:
     base = "bed_agent"
     pending = await hitl.load_pending(sid, base)

@@ -3,31 +3,17 @@
     {
       "id": "common_goal",
       "name": "Common Goal (collaborative)",
-      "description": "Agents share one objective and pass results forward; every agent in a level runs and its result is merged. No contention or arbitration.",
+      "description": "Agents share one objective and pass results forward; every agent runs and its result is merged. No contention or arbitration.",
       "handler": "common_goal",
-      "when_to_use": "Sequential or independent work where each agent contributes a distinct piece and outputs are combined at the end. This is the default.",
+      "when_to_use": "The agent contributes a distinct piece toward the goal and its output is combined with the others -- no fighting over a limited resource. This is the default; use it whenever no other strategy's condition is clearly met.",
       "default": true
     },
     {
       "id": "bidding",
       "name": "Bidding",
-      "description": "Agents in a level bid for a contested resource by returning a score; the highest bidder commits (acts for real) and the losers are skipped.",
+      "description": "Agents contending in the same level bid for one scarce unit by returning a score; the single highest bidder commits (acts for real) and every loser is skipped.",
       "handler": "bidding",
-      "when_to_use": "Several agents in the same level want the same scarce resource (e.g. a single free ICU bed) and only one should act."
-    },
-    {
-      "id": "competing",
-      "name": "Competing",
-      "description": "Agents independently produce candidate solutions; the best-scoring candidate is selected and the rest are discarded before synthesis.",
-      "handler": "common_goal",
-      "when_to_use": "Multiple valid approaches to the same goal exist and only the single best outcome should be kept."
-    },
-    {
-      "id": "independent",
-      "name": "Independent (parallel, no merge contention)",
-      "description": "Agents in a level run fully in parallel with no coordination; identical to common_goal today but reserved for strategies that must never arbitrate.",
-      "handler": "common_goal",
-      "when_to_use": "Agents in a level act on disjoint resources and never contend."
+      "when_to_use": "Two or more agents in the SAME level compete for one scarce unit that only ONE may take (e.g. several patients contending for a single free ICU bed, one ambulance for two simultaneous calls) and exactly one should win while the rest stand down. Do NOT use it when each agent has its own distinct job."
     }
   ]
 }
