@@ -143,20 +143,20 @@ episode return = sum(gamma^t * reward_t)
 AER            = mean(episode returns)
 ```
 
-The baseline and Q-learning model are evaluated on the same simulated arrivals and shift
+The baseline and committed artifact are evaluated on the same simulated arrivals and shift
 conditions. The recorded comparison used seeds `101` through `200` and produced 689 paired ER
 shift episodes.
 
 | Model | AER | Relative change |
 |---|---:|---:|
 | Baseline | 713.93 | - |
-| Q-learning | 648.84 | -9.1% |
+| Committed artifact | 782.25 | +9.6% |
 
 Run the same paired comparison for a trained model:
 
 ```powershell
 python scripts\resolve_comparison.py 100 `
-  --weights artifacts\er_q_policy.json `
+  --weights artifacts\er_policy.D_672ev_pop48.json `
   --seed-start 101
 ```
 
