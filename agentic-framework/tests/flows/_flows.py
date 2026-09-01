@@ -27,6 +27,20 @@ ALL_PLANNABLE = [
     "revenue_agent", "billing_agent",
 ]
 
+# Registry agents that no flow covers yet, and why. Adding an agent to the
+# registry should NOT break CI before anyone has had a chance to write a flow for
+# it — put it here in the same PR, then remove the entry when the flow lands.
+#
+# The list is deliberately visible rather than a silent exemption: it is the
+# to-do list of missing flow coverage, and it should trend toward empty.
+PENDING_FLOW_COVERAGE = {
+    "patient_verification_agent": (
+        "planner-injected for patient-specific goals and parks on a HITL "
+        "interrupt, so it has no place in a straight-through flow. Belongs to "
+        "the interrupt tests instead — not expected to gain a flow."
+    ),
+}
+
 
 def _agent(aid: str, label: str = "", **extra) -> dict:
     a = {"id": aid, "label": label or aid.replace("_", " ").title()}

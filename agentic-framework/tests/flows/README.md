@@ -10,7 +10,7 @@ asserting on which agents ran, in what order, and whether the level barrier held
 |---|---|
 | `_flows.py` | The flow catalog — six pipeline dicts, defined once |
 | `_driver.py` | `run_flow()`: builds the session graph and drives it to a terminal state |
-| `test_flow_coverage.py` | Static checks on the catalog. **No stack needed** |
+| `test_flow_coverage.py` | Registry-drift + real-leveller checks. **No stack needed** |
 | `test_flows_live.py` | The live end-to-end runs. Needs the stack |
 | `conftest.py` | Env setup, the service gate, and the session fixture |
 
@@ -26,18 +26,20 @@ asserting on which agents ran, in what order, and whether the level barrier held
 | `all_agents` | all 11 plannable agents | 4 levels, full width |
 
 The five themed flows cover every plannable agent between them; `all_agents`
-uses them all in one pipeline. `test_themed_flows_cover_every_plannable_agent`
-enforces that — **add an agent to the registry without adding it to a flow and
-CI fails**, which is the point.
+uses them all in one pipeline.
 
-`patient_verification_agent` is the one deliberate exclusion: it is planner-
-injected and parks on a HITL interrupt, so it does not belong in a straight-
-through flow.
+Adding an agent to the registry does **not** break CI on its own. Record it in
+`PENDING_FLOW_COVERAGE` in `_flows.py` (one line, with a reason) in the same PR,
+and remove the entry when its flow lands — so the gap stays visible without
+blocking agent work from an author who cannot run the live stack.
+
+`patient_verification_agent` is a permanent entry there: it is planner-injected
+and parks on a HITL interrupt, so it does not belong in a straight-through flow.
 
 ## Running
 
 ```bash
-# static catalog checks — no services, runs in ordinary CI
+# registry-drift + leveller checks — no services, runs in ordinary CI
 pytest tests/flows
 
 # the live flows — needs the stack up
