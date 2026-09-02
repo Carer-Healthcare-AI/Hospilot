@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import {
   Loader2, Pencil, Check, X, Zap, Workflow as WorkflowIcon,
-  CheckCircle2, XCircle, Clock, Ban, ArrowUpRight, PauseCircle, Bell,
+  CheckCircle2, XCircle, Clock, Ban, ArrowUpRight, PauseCircle, Bell, ArrowLeft,
 } from 'lucide-react'
 import { useStore } from '../store'
 import {
@@ -168,6 +168,14 @@ export function WorkflowsPage() {
     <div className="flex flex-1 flex-col overflow-hidden bg-[var(--bg-base)]">
       {/* Header */}
       <div className="px-6 py-4 border-b border-[var(--border)] flex items-center gap-3 flex-shrink-0">
+        <button
+          onClick={() => setActiveView('orchestrator')}
+          title="Back to Orchestrator"
+          aria-label="Back to Orchestrator"
+          className="w-9 h-9 rounded-xl border border-[var(--border-a)] bg-[var(--bg-raised)] text-slate-400 hover:bg-[var(--bg-hover)] hover:text-slate-200 flex items-center justify-center flex-shrink-0 transition-colors"
+        >
+          <ArrowLeft size={16} />
+        </button>
         <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center flex-shrink-0">
           <WorkflowIcon size={17} className="text-blue-400" />
         </div>

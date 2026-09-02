@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Search, ChevronDown, ChevronRight, Zap, Loader2, CheckCircle } from 'lucide-react'
+import { Search, ChevronDown, ChevronRight, Zap, Loader2, CheckCircle, ArrowLeft } from 'lucide-react'
 import { useStore } from '../../store'
 import { AGENT_META } from '../../data/capabilities'
 
@@ -11,6 +11,7 @@ function metaId(id: string) {
 export function AgentCapabilitiesView() {
   const agentRegistry = useStore((s) => s.agentRegistry)
   const agentRegistryLoaded = useStore((s) => s.agentRegistryLoaded)
+  const setActiveView = useStore((s) => s.setActiveView)
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -84,6 +85,13 @@ export function AgentCapabilitiesView() {
       {/* ── Left: agent list ───────────────────────────────────────────────── */}
       <div className="w-56 xl:w-64 2xl:w-72 flex-shrink-0 border-r border-[var(--border)] flex flex-col overflow-hidden">
         <div className="px-4 pt-4 pb-3 border-b border-[var(--border)]">
+          <button
+            onClick={() => setActiveView('orchestrator')}
+            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors mb-3"
+          >
+            <ArrowLeft size={12} />
+            Back to Orchestrator
+          </button>
           <div className="flex items-center gap-1.5 mb-2.5">
             <CheckCircle size={14} className="text-blue-400 flex-shrink-0" />
             <span className="text-sm font-bold text-slate-100">Agent Capabilities</span>

@@ -9,7 +9,7 @@
 #
 # Temporal is optional (TEMPORAL_ENABLED=false by default); the temporal +
 # worker services below are only exercised when you flip it on.
-name: hospilot-internal
+name: hospilot-oss
 
 services:
 
@@ -27,14 +27,15 @@ services:
     environment:
       REDIS_URL: redis://redis:6379
       KAFKA_BROKERS: kafka:9092
-      FABRIC_BASE_URL: http://fabric:8001
+      # FABRIC_BASE_URL intentionally not overridden here -- takes whatever's in
+      # agentic-framework/.env (local fabric container vs. the real remote one).
       TEMPORAL_HOST: temporal:7233
     depends_on:
       redis:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - hospilot-net
+      - hospilot-oss-net
 
   # ── Temporal worker (agent task activities; only when TEMPORAL_ENABLED=true)
   worker:
@@ -49,14 +50,15 @@ services:
     environment:
       REDIS_URL: redis://redis:6379
       KAFKA_BROKERS: kafka:9092
-      FABRIC_BASE_URL: http://fabric:8001
+      # FABRIC_BASE_URL intentionally not overridden here -- takes whatever's in
+      # agentic-framework/.env (local fabric container vs. the real remote one).
       TEMPORAL_HOST: temporal:7233
     depends_on:
       redis:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - hospilot-net
+      - hospilot-oss-net
 
   # ── Redis (session/queue/HITL/staging state) ──────────────────────────────
   redis:
@@ -70,8 +72,8 @@ services:
       retries: 10
     restart: unless-stopped
     networks:
-      - hospilot-net
+      - hospilot-oss-net
 
 networks:
-  hospilot-net:
-    name: hospilot-net
+  hospilot-oss-net:
+    name: hospilot-oss-net

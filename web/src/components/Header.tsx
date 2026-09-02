@@ -1,5 +1,5 @@
 ﻿import { useState, useRef, useEffect } from 'react'
-import { Activity, ChevronDown, CheckCircle, Sun, Moon, Cloud, Loader2, Save, LogOut, ShieldCheck, Workflow as WorkflowIcon } from 'lucide-react'
+import { ChevronDown, CheckCircle, Sun, Moon, Cloud, Loader2, Save, LogOut, ShieldCheck, Workflow as WorkflowIcon } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useStore } from '../store'
 import { OrgSwitcher } from './OrgSwitcher'
@@ -18,7 +18,6 @@ export function Header() {
   const { theme, setTheme } = useTheme()
   const currentUser = useStore((s) => s.currentUser)
   const logout = useStore((s) => s.logout)
-  const isApprover = currentUser?.role === 'approver'
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin'
 
   const initials = currentUser
@@ -60,24 +59,6 @@ export function Header() {
           <div className="text-[10px] text-slate-500 leading-tight truncate hidden lg:block">Hospital AI Command Center</div>
         </div>
       </div>
-
-      {/* Center nav tabs */}
-      {isApprover ? null : (
-        <div className="flex items-center gap-1 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl p-1 col-start-2 justify-self-center">
-          <button
-            onClick={() => setActiveView('orchestrator')}
-            title="Orchestrator"
-            className={`flex items-center gap-2 px-3 xl:px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
-              activeView === 'orchestrator'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Activity size={14} className="flex-shrink-0" />
-            <span className="hidden xl:inline">Orchestrator</span>
-          </button>
-        </div>
-      )}
 
       {/* Right: mode + status + theme toggle + user */}
       <div className="flex items-center gap-2 xl:gap-3 col-start-3 justify-self-end min-w-0">
