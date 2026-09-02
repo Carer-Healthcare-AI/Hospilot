@@ -1,0 +1,404 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Theme CSS variables ─────────────────────────────────────────────── */
+:root {
+  color-scheme: dark;
+
+  /* Backgrounds */
+  --bg-base:     #060b18;
+  --bg-surface:  #0a1628;
+  --bg-raised:   #0f2044;
+  --bg-hover:    #162d5c;
+
+  /* Borders */
+  --border:      #0f2044;
+  --border-a:    #1e3a73;
+  --border-s:    #2d4a7a;
+
+  /* Semi-transparent overlays */
+  --bg-overlay-base:    rgba(6, 11, 24, 0.92);
+  --bg-overlay-surface: rgba(10, 22, 40, 0.92);
+}
+
+html.light {
+  color-scheme: light;
+
+  /* Sidebar, panels — pure white control surface */
+  --bg-base:     #ffffff;
+  /* Cards inside sidebar — very subtle blue tint to lift off white */
+  --bg-surface:  #f0f7ff;
+  /* Buttons, pills, selected states */
+  --bg-raised:   #eff6ff;
+  /* Hover */
+  --bg-hover:    #dbeafe;
+
+  --border:      #c7d9f5;
+  --border-a:    #93c5fd;
+  --border-s:    #60a5fa;
+
+  --bg-overlay-base:    rgba(255, 255, 255, 0.97);
+  --bg-overlay-surface: rgba(240, 247, 255, 0.98);
+}
+
+/* ── Base body ───────────────────────────────────────────────────────── */
+body {
+  background-color: var(--bg-base);
+  @apply text-slate-100 font-sans antialiased;
+  margin: 0;
+  overflow: hidden;
+}
+
+/* ── Light mode: text inversions (slate scale flips) ────────────────── */
+html.light .text-slate-100 { color: #0f172a; }
+html.light .text-slate-200 { color: #1e293b; }
+html.light .text-slate-300 { color: #1e293b; }
+html.light .text-slate-400 { color: #334155; }
+html.light .text-slate-500 { color: #475569; }
+html.light .text-slate-600 { color: #475569; }
+html.light .text-slate-700 { color: #94a3b8; }
+html.light ::placeholder   { color: #94a3b8; }
+
+/* Bright text colors that become unreadable on white — darken them */
+html.light .text-blue-300   { color: #2563eb !important; }
+html.light .text-teal-300   { color: #0f766e !important; }
+html.light .text-purple-300 { color: #7e22ce !important; }
+html.light .text-red-300    { color: #dc2626 !important; }
+
+/* ── Light mode: dark semi-transparent backgrounds → light tints ─────── */
+html.light .bg-amber-950\/30    { background-color: #fff7ed !important; }
+html.light .border-amber-800\/40 { border-color: #fcd34d !important; }
+html.light .bg-red-950\/30      { background-color: #fff1f2 !important; }
+html.light .border-red-800\/40  { border-color: #fca5a5 !important; }
+html.light .border-amber-500\/40 { border-color: #fbbf24 !important; }
+
+html.light .bg-emerald-900\/50  { background-color: #d1fae5 !important; }
+html.light .bg-emerald-900\/40  { background-color: #d1fae5 !important; }
+html.light .border-emerald-700\/50 { border-color: #34d399 !important; }
+
+html.light .bg-purple-900\/50   { background-color: #f3e8ff !important; }
+html.light .bg-purple-900\/40   { background-color: #f3e8ff !important; }
+html.light .border-purple-700\/50 { border-color: #c084fc !important; }
+
+html.light .bg-teal-900\/40     { background-color: #ccfbf1 !important; }
+html.light .border-teal-700\/40 { border-color: #2dd4bf !important; }
+html.light .text-teal-400       { color: #0d9488; }
+
+html.light .bg-blue-900\/50     { background-color: #dbeafe !important; }
+html.light .bg-blue-900\/40     { background-color: #dbeafe !important; }
+html.light .border-blue-700     { border-color: #93c5fd !important; }
+html.light .shadow-blue-900\/40 { --tw-shadow-color: rgba(37, 99, 235, 0.18) !important; }
+
+html.light .bg-red-900\/50      { background-color: #fff1f2 !important; }
+html.light .border-red-700      { border-color: #fca5a5 !important; }
+
+html.light .bg-slate-800        { background-color: #f1f5f9 !important; }
+html.light .bg-slate-900\/80    { background-color: #f1f5f9 !important; }
+html.light .border-slate-700    { border-color: #cbd5e1 !important; }
+html.light .border-slate-700\/60 { border-color: #cbd5e1 !important; }
+
+/* ── Light mode: Agent Output panel — dark-bg cards need light equivalents ── */
+html.light .bg-teal-950\/20    { background-color: #f0fdfa !important; }
+html.light .bg-blue-950\/20    { background-color: #eff6ff !important; }
+html.light .bg-red-950\/20     { background-color: #fff1f2 !important; }
+html.light .bg-amber-950\/20   { background-color: #fffbeb !important; }
+html.light .bg-slate-800\/30   { background-color: #f1f5f9 !important; }
+
+html.light .border-teal-800\/40  { border-color: #5eead4 !important; }
+html.light .border-blue-800\/40  { border-color: #93c5fd !important; }
+html.light .border-red-700\/50   { border-color: #fca5a5 !important; }
+html.light .border-amber-700\/50 { border-color: #fcd34d !important; }
+html.light .border-teal-700\/50  { border-color: #2dd4bf !important; }
+html.light .border-slate-700\/50 { border-color: #cbd5e1 !important; }
+html.light .border-white\/5      { border-color: rgba(0, 0, 0, 0.08) !important; }
+
+/* Text: sidebar prompt card and alert/recommendation card text */
+html.light .text-blue-100  { color: #1e3a8a !important; }
+html.light .text-blue-400  { color: #1d4ed8 !important; }
+html.light .text-red-200   { color: #991b1b !important; }
+html.light .text-red-400   { color: #dc2626 !important; }
+html.light .text-amber-200 { color: #92400e !important; }
+html.light .text-amber-400 { color: #b45309 !important; }
+
+/* ── AuthScreen: a branded always-dark screen ───────────────────────────
+   Its surfaces are fixed dark hex values (bg-[#0d1625] etc.) that the light
+   theme can't recolour, but the slate text utilities above WOULD flip to dark
+   — producing dark-on-dark (e.g. invisible typed text in the inputs). Re-assert
+   the dark palette here so it renders identically in both themes. Higher
+   specificity than the plain `html.light .text-slate-*` rules, so these win. */
+html.light .auth-screen .text-slate-100 { color: #f1f5f9; }
+html.light .auth-screen .text-slate-200 { color: #e2e8f0; }
+html.light .auth-screen .text-slate-300 { color: #cbd5e1; }
+html.light .auth-screen .text-slate-400 { color: #94a3b8; }
+html.light .auth-screen .text-slate-500 { color: #64748b; }
+html.light .auth-screen .text-slate-600 { color: #475569; }
+html.light .auth-screen ::placeholder   { color: #475569; }
+
+/* ── Light mode: no ambient gradient needed — white is clean ─────────── */
+html.light body {
+  background-image: none;
+}
+
+/* ── React Flow overrides ────────────────────────────────────────────── */
+.react-flow__background {
+  background-color: var(--bg-base) !important;
+}
+
+.react-flow__controls button {
+  background: var(--bg-raised);
+  border-color: var(--border-a);
+  color: #94a3b8;
+}
+
+.react-flow__controls button:hover {
+  background: var(--bg-hover);
+}
+
+html.light .react-flow__controls button {
+  color: #475569;
+}
+
+.react-flow__minimap {
+  background: var(--bg-surface) !important;
+}
+
+.react-flow__edge-path {
+  stroke: var(--border-s);
+}
+
+/* Light mode ReactFlow — canvas is clearly blue, distinct from white sidebar */
+html.light .react-flow__background {
+  background-color: #dbeafe !important;
+}
+
+html.light .react-flow__edge-path {
+  stroke: #60a5fa !important;
+}
+
+html.light .react-flow__handle {
+  background-color: #60a5fa !important;
+  border-color: #ffffff !important;
+}
+
+html.light .react-flow__minimap-mask {
+  fill: rgba(219, 234, 254, 0.75) !important;
+}
+
+html.light .react-flow__minimap-node {
+  fill: #93c5fd !important;
+}
+
+/* dot opacity set below in structural section */
+
+html.light .react-flow__connectionline path {
+  stroke: #3b82f6 !important;
+}
+
+/* White cards lift off the blue canvas with a soft shadow */
+html.light .react-flow__node {
+  filter: drop-shadow(0 2px 12px rgba(37, 99, 235, 0.18));
+}
+
+/* Header: blue-tinted, sits distinctly above the white sidebar */
+html.light header {
+  background-color: #e8f0fe !important;
+  border-bottom-color: #bfdbfe !important;
+  box-shadow: 0 1px 8px rgba(37, 99, 235, 0.12) !important;
+}
+
+/* ── Light mode: structural separation & depth ───────────────────────── */
+
+/* Sidebar gets a right shadow — lifts off the blue canvas */
+html.light aside {
+  box-shadow: 4px 0 18px rgba(37, 99, 235, 0.10);
+}
+
+/* Textareas: white fill + blue border + inset depth so they read as inputs */
+html.light textarea {
+  background-color: #ffffff !important;
+  border-color: #93c5fd !important;
+  box-shadow: inset 0 1px 3px rgba(37, 99, 235, 0.07) !important;
+  color: #1e293b !important;
+}
+html.light textarea:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15), inset 0 1px 3px rgba(37, 99, 235, 0.07) !important;
+}
+
+/* Constraint textarea — amber border */
+html.light .border-amber-900\/40 { border-color: #f59e0b !important; }
+html.light textarea:has(+ .focus\:border-amber-500):focus { border-color: #f59e0b !important; }
+
+/* Dot grid: slightly more opaque so the canvas reads as a work surface */
+html.light .react-flow__background circle {
+  fill: rgba(96, 165, 250, 0.55) !important;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-a); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #2563eb; }
+
+html.light ::-webkit-scrollbar-thumb { background: #93c5fd; }
+html.light ::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+
+/* ── Streaming text ──────────────────────────────────────────────────── */
+.stream-line {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Drop highlight when inserting between nodes */
+.drop-highlight-node > div {
+  box-shadow: 0 0 0 3px #14b8a6, 0 0 16px 4px rgba(20,184,166,0.3);
+}
+
+/* Pulse ring for running nodes */
+@keyframes pulseRing {
+  0%   { box-shadow: 0 0 0 0 rgba(59,130,246,0.5); }
+  70%  { box-shadow: 0 0 0 8px rgba(59,130,246,0); }
+  100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
+}
+.node-running {
+  animation: pulseRing 1.4s ease-out infinite;
+}
+
+/* ── Mission-planning loader: a "molten" gooey orb -- an SVG mask of blurred,
+   rotating polygons pushed back to sharp edges via an oscillating contrast
+   filter (the classic gooey-effect trick), giving the shapes inside the orb a
+   continuously melting/separating look. Ported from a plain CSS/SVG snippet
+   into this file's convention (no styled-components) -- see
+   CoordinatingLoader.tsx for the markup. Colors shifted to the app's blue
+   accent (was amber/orange) to match the dark navy UI. */
+.coord-loader {
+  --color-one: #60a5fa;
+  --color-two: #1d4ed8;
+  --color-three: #60a5fa80;
+  --color-four: #1d4ed880;
+  --color-five: #60a5fa40;
+  --time-animation: 2s;
+  position: relative;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  box-shadow:
+    0 0 25px 0 var(--color-three),
+    0 20px 50px 0 var(--color-four);
+  animation: coordColorize calc(var(--time-animation) * 3) ease-in-out infinite;
+}
+
+.coord-loader::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  border-top: solid 1px var(--color-one);
+  border-bottom: solid 1px var(--color-two);
+  background: linear-gradient(180deg, var(--color-five), var(--color-four));
+  box-shadow:
+    inset 0 10px 10px 0 var(--color-three),
+    inset 0 -10px 10px 0 var(--color-four);
+}
+
+.coord-loader-box {
+  width: 100px;
+  height: 100px;
+  background: linear-gradient(180deg, var(--color-one) 30%, var(--color-two) 70%);
+  mask: url(#coord-clipping);
+  -webkit-mask: url(#coord-clipping);
+}
+
+.coord-loader svg {
+  position: absolute;
+}
+
+.coord-loader svg #coord-clipping {
+  filter: contrast(15);
+  animation: coordRoundness calc(var(--time-animation) / 2) linear infinite;
+}
+
+.coord-loader svg #coord-clipping polygon {
+  filter: blur(7px);
+}
+
+.coord-loader svg #coord-clipping polygon:nth-child(1) {
+  transform-origin: 75% 25%;
+  transform: rotate(90deg);
+}
+.coord-loader svg #coord-clipping polygon:nth-child(2) {
+  transform-origin: 50% 50%;
+  animation: coordRotation var(--time-animation) linear infinite reverse;
+}
+.coord-loader svg #coord-clipping polygon:nth-child(3) {
+  transform-origin: 50% 60%;
+  animation: coordRotation var(--time-animation) linear infinite;
+  animation-delay: calc(var(--time-animation) / -3);
+}
+.coord-loader svg #coord-clipping polygon:nth-child(4) {
+  transform-origin: 40% 40%;
+  animation: coordRotation var(--time-animation) linear infinite reverse;
+}
+.coord-loader svg #coord-clipping polygon:nth-child(5) {
+  transform-origin: 40% 40%;
+  animation: coordRotation var(--time-animation) linear infinite reverse;
+  animation-delay: calc(var(--time-animation) / -2);
+}
+.coord-loader svg #coord-clipping polygon:nth-child(6) {
+  transform-origin: 60% 40%;
+  animation: coordRotation var(--time-animation) linear infinite;
+}
+.coord-loader svg #coord-clipping polygon:nth-child(7) {
+  transform-origin: 60% 40%;
+  animation: coordRotation var(--time-animation) linear infinite;
+  animation-delay: calc(var(--time-animation) / -1.5);
+}
+
+@keyframes coordRotation {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes coordRoundness {
+  0%   { filter: contrast(15); }
+  20%  { filter: contrast(3); }
+  40%  { filter: contrast(3); }
+  60%  { filter: contrast(15); }
+  100% { filter: contrast(15); }
+}
+
+@keyframes coordColorize {
+  0%   { filter: hue-rotate(0deg); }
+  20%  { filter: hue-rotate(-30deg); }
+  40%  { filter: hue-rotate(-60deg); }
+  60%  { filter: hue-rotate(-90deg); }
+  80%  { filter: hue-rotate(-45deg); }
+  100% { filter: hue-rotate(0deg); }
+}
+
+/* ── Planning "thinking" status word -- a single shimmering word cycling through
+   playful synonyms (Claude-style "Thinking…"/"Pondering…") instead of a static
+   label, shown while the mission-planning wait runs. */
+.planning-shimmer-text {
+  background-image: linear-gradient(
+    90deg,
+    #64748b 0%, #64748b 40%, #e2e8f0 50%, #64748b 60%, #64748b 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: planningShimmerSweep 1.8s linear infinite;
+}
+@keyframes planningShimmerSweep {
+  0%   { background-position: 150% 0; }
+  100% { background-position: -50% 0; }
+}
