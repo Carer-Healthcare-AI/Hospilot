@@ -1,6 +1,6 @@
 # Keep the same project name as docker-compose.yml so the two -f files merge into
 # one stack (see the note there).
-name: hospilot-internal
+name: hospilot-oss
 
 services:
 
@@ -25,7 +25,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - hospilot-net
+      - hospilot-oss-net
 
   # ── Kafka (KRaft mode, single node — no Zookeeper) ────────────────────────
   kafka:
@@ -48,14 +48,14 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     healthcheck:
-      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "kafka:9092"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1"]
+      interval: 15s
+      timeout: 20s
+      retries: 15
+      start_period: 45s
     networks:
-      - hospilot-net
+      - hospilot-oss-net
 
 networks:
-  hospilot-net:
-    name: hospilot-net
+  hospilot-oss-net:
+    name: hospilot-oss-net
