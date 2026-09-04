@@ -7,8 +7,12 @@
 #     -f deployments/docker-compose.fabric.yml \
 #     -f deployments/docker-compose.agentic-framework.yml up
 #
-# Temporal is optional (TEMPORAL_ENABLED=false by default); the temporal +
-# worker services below are only exercised when you flip it on.
+# Temporal is always-on in this stack: the temporal plane + worker below start
+# with the stack, and TEMPORAL_ENABLED / KAFKA_ENABLED are forced on in each
+# service's environment. Kafka (from the fabric compose) bridges worker-emitted
+# WS events to the API relay, so approvals raised on the worker reach the browser
+# -- with Kafka off, broadcast() falls back to process-local delivery and the
+# worker's approval_required never reaches the browser (modal never appears).
 name: hospilot-oss
 
 services:
@@ -30,19 +34,24 @@ services:
       # FABRIC_BASE_URL intentionally not overridden here -- takes whatever's in
       # agentic-framework/.env (local fabric container vs. the real remote one).
       TEMPORAL_HOST: temporal:7233
+      # Route agent tasks to Temporal and bridge worker-emitted WS events over
+      # Kafka. Forced on here so the stack does not depend on the local .env.
+      TEMPORAL_ENABLED: "true"
+      KAFKA_ENABLED: "true"
     depends_on:
       redis:
+        condition: service_healthy
+      temporal:
         condition: service_healthy
     restart: unless-stopped
     networks:
       - hospilot-oss-net
 
-  # ── Temporal worker (agent task activities; only when TEMPORAL_ENABLED=true)
-  # Gated behind the "temporal" profile so it does NOT start on the default
-  # assisted-mode stack (there is no `temporal` service here to connect to).
-  # Enable with: docker compose --profile temporal ... up
+  # ── Temporal worker (runs agent-task activities + escalation workflows) ────
+  # Always-on. KAFKA_ENABLED=true so broadcast() from activities publishes to
+  # Kafka -> API relay -> browser WS; deliver_local here would be process-local
+  # and never reach the browser (this is what left approvals stuck).
   worker:
-    profiles: ["temporal"]
     build:
       context: ../agentic-framework
       dockerfile: ../deployments/agentic-framework.Dockerfile
@@ -57,6 +66,8 @@ services:
       # FABRIC_BASE_URL intentionally not overridden here -- takes whatever's in
       # agentic-framework/.env (local fabric container vs. the real remote one).
       TEMPORAL_HOST: temporal:7233
+      TEMPORAL_ENABLED: "true"
+      KAFKA_ENABLED: "true"
     depends_on:
       redis:
         condition: service_healthy
@@ -80,13 +91,10 @@ services:
     networks:
       - hospilot-oss-net
 
-  # ── Temporal durable execution plane (only with --profile temporal) ────────
-  # Ported from the internal deployment. Enable the whole plane (server + UI +
-  # its Postgres + the worker above) alongside TEMPORAL_ENABLED=true via:
-  #   docker compose -f ... -f ... --profile temporal up --build -d
+  # ── Temporal durable execution plane (server + UI + its Postgres) ──────────
+  # Ported from the internal deployment. Always-on alongside the worker above.
   # Web UI -> http://localhost:8088
   temporal-postgres:
-    profiles: ["temporal"]
     image: postgres:15-alpine
     environment:
       POSTGRES_USER: temporal
@@ -103,7 +111,6 @@ services:
       - hospilot-oss-net
 
   temporal:
-    profiles: ["temporal"]
     image: temporalio/auto-setup:1.24.2
     ports:
       - "7233:7233"
@@ -126,7 +133,6 @@ services:
       - hospilot-oss-net
 
   temporal-ui:
-    profiles: ["temporal"]
     image: temporalio/ui:2.26.2
     ports:
       - "8088:8080"

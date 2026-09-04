@@ -34,32 +34,56 @@ async def _relay_loop() -> None:
     from api.routes.ws import deliver_local
 
     global _consumer
-    _consumer = AIOKafkaConsumer(
-        settings.kafka_events_topic,
-        bootstrap_servers=settings.kafka_broker_list,
-        group_id=_group_id(),
-        value_deserializer=lambda b: json.loads(b.decode("utf-8")),
-        auto_offset_reset="latest",     # live UI: only relay events from now on
-        enable_auto_commit=True,
-    )
-    await _consumer.start()
-    logger.info("[ok] WS relay consumer started  topic=%s  group=%s",
-                settings.kafka_events_topic, _group_id())
-    try:
-        async for msg in _consumer:
-            env = msg.value or {}
-            sid = env.get("session_id")
-            event = env.get("event")
-            if sid and event is not None:
-                try:
-                    await deliver_local(sid, event)
-                except Exception:  # noqa: BLE001
-                    logger.warning("WS relay delivery failed  session=%s", sid, exc_info=True)
-    except asyncio.CancelledError:
-        pass
-    finally:
-        await _consumer.stop()
-        logger.info("WS relay consumer stopped")
+    # Supervise the consumer: a cold-start race (Kafka up but the group coordinator
+    # still electing -> GroupCoordinatorNotAvailableError) or a transient broker
+    # blip must not permanently kill this task -- otherwise worker-produced events
+    # (e.g. approval_required) sit unconsumed and never reach the browser. Retry
+    # start with backoff, and reconnect if the consume loop errors out.
+    backoff = 1
+    while True:
+        _consumer = AIOKafkaConsumer(
+            settings.kafka_events_topic,
+            bootstrap_servers=settings.kafka_broker_list,
+            group_id=_group_id(),
+            value_deserializer=lambda b: json.loads(b.decode("utf-8")),
+            auto_offset_reset="latest",     # live UI: only relay events from now on
+            enable_auto_commit=True,
+        )
+        try:
+            await _consumer.start()
+        except asyncio.CancelledError:
+            await _consumer.stop()
+            raise
+        except Exception:  # noqa: BLE001 -- Kafka/coordinator not ready yet; retry.
+            logger.warning("WS relay consumer start failed; retry in %ss", backoff,
+                           exc_info=True)
+            await _consumer.stop()
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 30)
+            continue
+
+        backoff = 1
+        logger.info("[ok] WS relay consumer started  topic=%s  group=%s",
+                    settings.kafka_events_topic, _group_id())
+        try:
+            async for msg in _consumer:
+                env = msg.value or {}
+                sid = env.get("session_id")
+                event = env.get("event")
+                if sid and event is not None:
+                    try:
+                        await deliver_local(sid, event)
+                    except Exception:  # noqa: BLE001
+                        logger.warning("WS relay delivery failed  session=%s", sid, exc_info=True)
+        except asyncio.CancelledError:
+            await _consumer.stop()
+            logger.info("WS relay consumer stopped")
+            return
+        except Exception:  # noqa: BLE001 -- transient consume/rebalance error; reconnect.
+            logger.warning("WS relay consume error; reconnecting", exc_info=True)
+            await _consumer.stop()
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 30)
 
 
 async def start_ws_relay() -> None:
