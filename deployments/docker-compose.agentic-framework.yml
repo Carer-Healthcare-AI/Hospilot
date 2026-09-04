@@ -38,7 +38,11 @@ services:
       - hospilot-oss-net
 
   # ── Temporal worker (agent task activities; only when TEMPORAL_ENABLED=true)
+  # Gated behind the "temporal" profile so it does NOT start on the default
+  # assisted-mode stack (there is no `temporal` service here to connect to).
+  # Enable with: docker compose --profile temporal ... up
   worker:
+    profiles: ["temporal"]
     build:
       context: ../agentic-framework
       dockerfile: ../deployments/agentic-framework.Dockerfile
@@ -55,6 +59,8 @@ services:
       TEMPORAL_HOST: temporal:7233
     depends_on:
       redis:
+        condition: service_healthy
+      temporal:
         condition: service_healthy
     restart: unless-stopped
     networks:
@@ -74,6 +80,68 @@ services:
     networks:
       - hospilot-oss-net
 
+  # ── Temporal durable execution plane (only with --profile temporal) ────────
+  # Ported from the internal deployment. Enable the whole plane (server + UI +
+  # its Postgres + the worker above) alongside TEMPORAL_ENABLED=true via:
+  #   docker compose -f ... -f ... --profile temporal up --build -d
+  # Web UI -> http://localhost:8088
+  temporal-postgres:
+    profiles: ["temporal"]
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+    volumes:
+      - temporal_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - hospilot-oss-net
+
+  temporal:
+    profiles: ["temporal"]
+    image: temporalio/auto-setup:1.24.2
+    ports:
+      - "7233:7233"
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-postgres
+    depends_on:
+      temporal-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - hospilot-oss-net
+
+  temporal-ui:
+    profiles: ["temporal"]
+    image: temporalio/ui:2.26.2
+    ports:
+      - "8088:8080"
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:8088
+    depends_on:
+      temporal:
+        condition: service_healthy
+    networks:
+      - hospilot-oss-net
+
 networks:
   hospilot-oss-net:
     name: hospilot-oss-net
+
+volumes:
+  temporal_pgdata:
