@@ -2,6 +2,9 @@
 
 **The open-source Agentic AI Operating Layer for Hospital Operations.**
 
+<img width="1918" height="885" alt="ezgif com-gif-maker (3)" src="https://github.com/user-attachments/assets/afb1eee2-9588-45ee-817f-00ec9296943c" />
+
+
 Hospitals already have a HIS/HMIS. What they don't have is something that *acts* on it.
 Hospilot sits on top of your existing hospital information system, reads what's actually
 happening across beds, ER, ICU, staffing, and revenue in real time, and coordinates
