@@ -416,7 +416,7 @@ export function Sidebar() {
                 {reorchestrateLoading && (
                   <div className="flex items-center gap-2 px-1 py-1 text-xs text-blue-400">
                     <Loader2 size={11} className="animate-spin flex-shrink-0" />
-                    <span>Re-orchestrating pipeline…</span>
+                    <span>Re-orchestrating workflow…</span>
                   </div>
                 )}
               </div>
