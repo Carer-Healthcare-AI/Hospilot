@@ -264,6 +264,15 @@ export function PipelineCanvas() {
 		[setNodes, setStoreNodes]
 	)
 
+	// Stable reference -- ReactFlow's SelectionListener re-runs its internal effect
+	// whenever this callback's identity changes, so an inline arrow here (a fresh
+	// function every render) makes it refire every render too, which around here
+	// snowballs into "Maximum update depth exceeded".
+	const onSelectionChange = useCallback(
+		({ nodes: sel }: { nodes: Node[] }) => setSelectedIds(sel.map((n) => n.id)),
+		[]
+	)
+
 	// ── Drag-and-drop from palette ───────────────────────────────────────────
 	const onDragOver = useCallback((event: React.DragEvent) => {
 		event.preventDefault()
@@ -546,7 +555,7 @@ export function PipelineCanvas() {
 				nodesConnectable={isEditing}
 				elementsSelectable={!isRunning}
 				deleteKeyCode={['Delete', 'Backspace']}
-				onSelectionChange={({ nodes: sel }) => setSelectedIds(sel.map((n) => n.id))}
+				onSelectionChange={onSelectionChange}
 				onInit={(instance) => { rfRef.current = instance }}
 				fitView
 				fitViewOptions={{ padding: 0.2, minZoom: 0.5 }}
@@ -803,7 +812,7 @@ export function PipelineCanvas() {
 				<div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-none">
 					<div className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-[var(--bg-overlay-base)] border border-blue-500/40 shadow-2xl">
 						<Loader2 size={14} className="text-blue-400 animate-spin flex-shrink-0" />
-						<span className="text-xs text-blue-300 font-semibold">Re-orchestrating pipeline…</span>
+						<span className="text-xs text-blue-300 font-semibold">Re-orchestrating workflow…</span>
 					</div>
 				</div>
 			)}

@@ -53,7 +53,6 @@ export function Header() {
     <header className="relative z-[60] grid grid-cols-[1fr_auto_1fr] items-center px-5 py-0 border-b border-[var(--border)] bg-[var(--bg-base)] flex-shrink-0 h-14">
       {/* Logo */}
       <div className="flex items-center gap-2.5 col-start-1 justify-self-start min-w-0">
-        <img src="/carer.png" alt="Carer" className="h-6 w-auto flex-shrink-0" />
         <div className="min-w-0">
           <div className="text-sm font-bold text-slate-100 leading-tight truncate">Hospilot</div>
           <div className="text-[10px] text-slate-500 leading-tight truncate hidden lg:block">Hospital AI Command Center</div>
