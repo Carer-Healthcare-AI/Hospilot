@@ -16,6 +16,11 @@ Quick Start.
 
 ## Before you open a PR
 
+- **Name your branch after the change**, not yourself or the date —
+  `<type>/<short-description>` in kebab-case, e.g. `fix/canvas-selection-loop`,
+  `feat/opensource-web-ui`, `tests/agent-flow-e2e`. Common types: `feat`, `fix`, `tests`,
+  `stage`/`staging` for work landing on a staging branch first. Someone should be able to
+  tell what the branch does from its name alone, without opening the PR.
 - **Run the tests.** `python -m pytest` in whichever service you touched. Fabric's suite
   (72 tests) is fully hermetic — no network or broker required. Add tests for new
   behavior; a PR that only adds code without covering it is a slower review, not a faster
