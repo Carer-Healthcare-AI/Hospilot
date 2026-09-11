@@ -66,13 +66,6 @@ _AGENT_CARDS = {
         "capabilities": {"streaming": False, "pushNotifications": False},
         "skills": [{"id": "discharge_readiness", "name": "Discharge Readiness Check"}],
     },
-    "pharmacy_agent": {
-        "name": "Pharmacy Agent",
-        "description": "Checks drug inventory for critical shortages.",
-        "version": "1.0.0",
-        "capabilities": {"streaming": False, "pushNotifications": False},
-        "skills": [{"id": "stock_monitor", "name": "Drug Stock Monitor"}],
-    },
     "ot_agent": {
         "name": "OT Scheduling Agent",
         "description": "Reviews scheduled OT cases against post-op bed availability and flags conflicts.",
@@ -147,10 +140,11 @@ _AGENT_CARDS = {
     },
     "pharmacy_agent": {
         "name": "Pharmacy Agent",
-        "description": "Manages pharmacy operations: dispensing queue, STAT order prioritisation, drug interactions, substitution management, controlled drug tracking, and capacity forecasting.",
+        "description": "Manages pharmacy operations: drug inventory and critical shortages, dispensing queue, STAT order prioritisation, drug interactions, substitution management, controlled drug tracking, and capacity forecasting.",
         "version": "1.0.0",
         "capabilities": {"streaming": False, "pushNotifications": False},
         "skills": [
+            {"id": "stock_monitor",       "name": "Drug Stock Monitor"},
             {"id": "dispensing_queue",    "name": "Dispensing Queue"},
             {"id": "drug_interactions",   "name": "Drug Interactions"},
             {"id": "controlled_drugs",    "name": "Controlled Drug Tracking"},
