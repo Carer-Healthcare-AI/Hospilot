@@ -18,10 +18,15 @@ from agents.er.activities import (
     detect_clinical_protocol, notify_specialist,
     ErTriageInput, ErSaveInput, ErFasttrackInput, SelectCriticalInput,
 )
+from agents.er.surge_prediction import (
+    forecast_er_surge, forecast_er_wait_time, forecast_er_boarding, forecast_er_lwbs,
+    forecast_er_congestion, forecast_ambulance_arrivals,
+)
 from agents.revenue.activities import (
     identify_revenue_leakage, optimize_package_utilization, analyze_resource_utilization,
     analyze_dept_profitability, predict_denial_risk_rev, presubmission_validation_rev,
     payer_rule_compliance_rev, detect_missing_docs_rev, escalation_recommendations_rev,
+    forecast_revenue, forecast_claim_denial, forecast_claim_volume, forecast_collection,
     RevAnalysisInput,
 )
 from agents.lab.sample_prioritization import (
@@ -172,9 +177,49 @@ async def run_er_body(sid: str, ctx: dict) -> dict:
         seed_planned_slots(task_plan, _ER_TASKS)
 
     if task_plan is not None:
+        # sa_er_lwbs, sa_er_congestion, sa_er_ambulance_arrivals dropped --
+        # forecasts retired (see migration 120_disable_extended_prediction_models.sql)
         for _sa in ("sa_er_triage", "sa_er_acuity_response", "sa_er_disposition",
-                    "sa_er_boarding"):
+                    "sa_er_boarding", "sa_er_surge_prediction", "sa_er_wait_time",
+                    "sa_er_boarding_forecast"):
             await plan_subagent("er_agent", _sa, _ER_TASKS, task_plan, ta_results, goal, sid)
+
+    # -- Surge prediction: forward-looking ML forecast of incoming ER arrivals ----
+    # Runs independently of the triage spine (it reads recent arrival rate, not the
+    # current queue), so it lives ahead of the "no active patients" early return.
+    if subagent_in_plan("sa_er_surge_prediction", task_plan):
+        if await should_run_task("ta_forecast_er_surge", "sa_er_surge_prediction", ta_results, task_plan, sid):
+            ta_results["ta_forecast_er_surge"] = await forecast_er_surge(sid)
+
+    # -- Wait-time forecast: predicted ER wait minutes + breach risk (queue + staffing).
+    _er_wait_fc: dict = {}
+    if subagent_in_plan("sa_er_wait_time", task_plan):
+        if await should_run_task("ta_forecast_er_wait_time", "sa_er_wait_time", ta_results, task_plan, sid):
+            ta_results["ta_forecast_er_wait_time"] = await forecast_er_wait_time(sid, goal)
+            _er_wait_fc = {"er_wait_time_forecast": ta_results["ta_forecast_er_wait_time"]}
+
+    if subagent_in_plan("sa_er_boarding_forecast", task_plan):
+        if await should_run_task("ta_forecast_er_boarding", "sa_er_boarding_forecast", ta_results, task_plan, sid):
+            ta_results["ta_forecast_er_boarding"] = await forecast_er_boarding(sid, goal)
+            _er_wait_fc = {**_er_wait_fc, "er_boarding_forecast": ta_results["ta_forecast_er_boarding"]}
+
+    # DISABLED -- forecast retired (see migration 120_disable_extended_prediction_models.sql)
+    # if subagent_in_plan("sa_er_lwbs", task_plan):
+    #     if await should_run_task("ta_forecast_er_lwbs", "sa_er_lwbs", ta_results, task_plan, sid):
+    #         ta_results["ta_forecast_er_lwbs"] = await forecast_er_lwbs(sid, goal)
+    #         _er_wait_fc = {**_er_wait_fc, "er_lwbs_forecast": ta_results["ta_forecast_er_lwbs"]}
+
+    # DISABLED -- forecast retired (see migration 120_disable_extended_prediction_models.sql)
+    # if subagent_in_plan("sa_er_congestion", task_plan):
+    #     if await should_run_task("ta_forecast_er_congestion", "sa_er_congestion", ta_results, task_plan, sid):
+    #         ta_results["ta_forecast_er_congestion"] = await forecast_er_congestion(sid, goal)
+    #         _er_wait_fc = {**_er_wait_fc, "er_congestion_forecast": ta_results["ta_forecast_er_congestion"]}
+
+    # DISABLED -- forecast retired (see migration 120_disable_extended_prediction_models.sql)
+    # if subagent_in_plan("sa_er_ambulance_arrivals", task_plan):
+    #     if await should_run_task("ta_forecast_ambulance_arrivals", "sa_er_ambulance_arrivals", ta_results, task_plan, sid):
+    #         ta_results["ta_forecast_ambulance_arrivals"] = await forecast_ambulance_arrivals(sid, goal)
+    #         _er_wait_fc = {**_er_wait_fc, "ambulance_arrival_forecast": ta_results["ta_forecast_ambulance_arrivals"]}
 
     triage: list = []
     fasttrack: dict = {"fasttrack_candidates": []}
@@ -203,7 +248,10 @@ async def run_er_body(sid: str, ctx: dict) -> dict:
             visits = stubs + visits
 
     if not visits:
-        return {"status": "completed", "message": "No active ER patients"}
+        return {"status": "completed", "message": "No active ER patients",
+                **({"er_surge_forecast": ta_results["ta_forecast_er_surge"]}
+                   if "ta_forecast_er_surge" in ta_results else {}),
+                **_er_wait_fc}
 
     # -- Triage spine: pull the queue, score it, persist (always-run unit) -------
     if subagent_in_plan("sa_er_triage", task_plan):
@@ -281,6 +329,9 @@ async def run_er_body(sid: str, ctx: dict) -> dict:
         "fasttrack_candidates": fasttrack_candidates,
         "critical_patients": critical_patients,
         "results": triage,
+        **({"er_surge_forecast": ta_results["ta_forecast_er_surge"]}
+           if "ta_forecast_er_surge" in ta_results else {}),
+        **_er_wait_fc,
         **(_dynamic and {"dynamic_tasks": _dynamic} or {}),
     }
 
@@ -404,6 +455,41 @@ async def run_revenue_body(sid: str, ctx: dict) -> dict:
     if task_plan is not None and goal:
         seed_planned_slots(task_plan, _REVENUE_TASKS)
 
+    # Forward-looking organization-wide revenue forecast (INR); independent of the
+    # leakage/denial analytics, surfaced in the return dict.
+    _rev_fc: dict = {}
+    # DISABLED -- forecast retired (see migration 120_disable_extended_prediction_models.sql)
+    # if task_plan is not None:
+    #     await plan_subagent("revenue_agent", "sa_rev_forecast", _REVENUE_TASKS, task_plan, ta_results, goal, sid)
+    # if subagent_in_plan("sa_rev_forecast", task_plan) and await should_run_task(
+    #         "ta_forecast_revenue", "sa_rev_forecast", ta_results, task_plan, sid):
+    #     ta_results["ta_forecast_revenue"] = await forecast_revenue(sid, goal)
+    #     _rev_fc = {"revenue_forecast": ta_results["ta_forecast_revenue"]}
+
+    # Forward-looking insurance claim-denial-rate forecast (% + denied-value %).
+    if task_plan is not None:
+        await plan_subagent("revenue_agent", "sa_rev_claim_denial", _REVENUE_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_rev_claim_denial", task_plan) and await should_run_task(
+            "ta_forecast_claim_denial", "sa_rev_claim_denial", ta_results, task_plan, sid):
+        ta_results["ta_forecast_claim_denial"] = await forecast_claim_denial(sid, goal)
+        _rev_fc = {**_rev_fc, "claim_denial_forecast": ta_results["ta_forecast_claim_denial"]}
+
+    # Forward-looking insurance claim-submission-volume forecast (+ per-staff load).
+    if task_plan is not None:
+        await plan_subagent("revenue_agent", "sa_rev_claim_volume", _REVENUE_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_rev_claim_volume", task_plan) and await should_run_task(
+            "ta_forecast_claim_volume", "sa_rev_claim_volume", ta_results, task_plan, sid):
+        ta_results["ta_forecast_claim_volume"] = await forecast_claim_volume(sid, goal)
+        _rev_fc = {**_rev_fc, "claim_volume_forecast": ta_results["ta_forecast_claim_volume"]}
+
+    # Forward-looking cash-collection forecast (payments actually collected).
+    if task_plan is not None:
+        await plan_subagent("revenue_agent", "sa_rev_collection", _REVENUE_TASKS, task_plan, ta_results, goal, sid)
+    if subagent_in_plan("sa_rev_collection", task_plan) and await should_run_task(
+            "ta_forecast_collection", "sa_rev_collection", ta_results, task_plan, sid):
+        ta_results["ta_forecast_collection"] = await forecast_collection(sid, goal)
+        _rev_fc = {**_rev_fc, "collection_forecast": ta_results["ta_forecast_collection"]}
+
     # (revenue/billing split 2026-06) patient_billing / initiate_billing task_types
     # are now handled by run_billing_body -- billing_agent executes billing ops.
     # Commented out rather than deleted -- remove once stable.
@@ -493,6 +579,7 @@ async def run_revenue_body(sid: str, ctx: dict) -> dict:
             "missing_docs": (ta_results.get("ta_detect_missing_docs_rev") or {}).get("missing_docs_count", 0),
             "escalation_count": (ta_results.get("ta_escalation_recommendations_rev") or {}).get("escalation_count", 0),
         },
+        **_rev_fc,
         **(_dynamic and {"dynamic_tasks": _dynamic} or {}),
     }
 
