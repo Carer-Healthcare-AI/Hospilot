@@ -39,8 +39,6 @@ Initial operational agents cover areas such as:
 - Delayed discharge
 - Nurse demand
 - ER surge
-- Hospital gridlock risk
-- Decongestion recommendations
 
 # 🗺️ What's Next
 
@@ -100,11 +98,6 @@ Hospilot agents should be able to run using cloud models, open-source models, lo
 - Specialized SLM support
 - Per-agent model selection
 - Model fallback
-- Dynamic model routing
-- Cost-aware routing
-- Latency-aware routing
-- Quality-aware routing
-- Quantized model support
 - On-premise inference
 - Model benchmarking
 
@@ -274,7 +267,7 @@ This will allow open-source contributors to build and evaluate agents without re
 
 ### Create a Virtual Healthcare Operations Environment
 
-Build a dynamic digital representation of healthcare operations that agents can use for simulation and decision support. This is the state representation the closed-loop system in [§12](#12--digital-twin-optimization) forecasts against and optimizes over.
+Build a dynamic digital representation of healthcare operations that agents can use for simulation and decision support.
 
 ### Initial Digital Twin Entities
 
@@ -344,7 +337,7 @@ Examples:
 
 ### From Recommendations to Controlled Actions
 
-Hospilot's autonomous capabilities will be introduced progressively rather than as an on/off feature.
+Hospilot's autonomous capabilities will be introduced progressively rather than as an on/off feature. 
 
 ### Autonomy Journey
 
@@ -469,7 +462,7 @@ Agent
 
 ### Manage the Intelligence Behind Agents
 
-Separate agent functionality from the AI models and prompts powering each agent. Where [§2](#2--open-source-model-runtime) is *how* a model runs (routing, inference, fallback), this is the registry and governance layer on top of it — versioning, benchmarking, and per-agent assignment.
+Separate agent functionality from the AI models and prompts powering each agent.
 
 ### Planned Capabilities
 
@@ -494,7 +487,7 @@ Separate agent functionality from the AI models and prompts powering each agent.
 
 ### Forecast → Simulate → Optimize → Act
 
-The integration layer: wires the Digital Twin ([§6](#6--healthcare-digital-twin)), Forecasting Agents ([§3](#3--forecasting--predictive-agents)), and the Scenario Engine ([§7](#7--what-if--scenario-engine)) into one closed loop, then adds optimization on top. No new twin is introduced here — this is what those three pieces produce together.
+Bring forecasting, simulation, Digital Twin, and agents together into a closed-loop operational intelligence system.
 
 ```
 Real-Time Healthcare Data
