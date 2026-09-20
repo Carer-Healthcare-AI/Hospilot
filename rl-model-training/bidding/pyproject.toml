@@ -37,7 +37,13 @@ dev = [
 include = ["allocation*"]
 
 [tool.setuptools.package-data]
-allocation = ["config/*.yaml", "config/rules/*.yaml"]
+allocation = [
+    "config/*.yaml",
+    "config/rules/*.yaml",
+    # each diagnostic modality carries its own caps and budget tables; they live with the
+    # use case so that adding a scanner cannot move `config_version` for a bed auction
+    "use_cases/diagnostic_machine/config/*.yaml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

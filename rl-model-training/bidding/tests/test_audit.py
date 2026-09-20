@@ -303,7 +303,7 @@ def test_unknown_mortality_marks_the_episode_incomplete(bundle):
     """
     row = build_outcome_row(
         bundle.auction_id,
-        terms={"transferred_to_icu": 50, "patient_stabilised": 40, "boarding_reduced": 15},
+        terms={"transferred_to_target_unit": 50, "patient_stabilised": 40, "boarding_reduced": 15},
         horizon_hours=4.0,
     )
     assert row.mortality_observed is None
@@ -316,7 +316,7 @@ def test_a_complete_outcome_needs_a_mortality_source(bundle):
     """Once a disposition field exists, the episode becomes usable."""
     row = build_outcome_row(
         bundle.auction_id,
-        terms={"transferred_to_icu": 50, "no_mortality": 30},
+        terms={"transferred_to_target_unit": 50, "no_mortality": 30},
         horizon_hours=4.0,
         mortality_observed=False,
         mortality_source="ipd_admissions.disposition",

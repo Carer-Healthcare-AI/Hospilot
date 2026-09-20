@@ -1,0 +1,49 @@
+# Utility component maxima for an ULTRASOUND UNIT — the diagnostic-machine family.
+#
+# ONE CAPS FILE PER MODALITY. The profile selects this file via
+# `ModalityProfile.caps_config`, and `caps_version` hashes the file actually used, so a CT
+# auction and an MRI auction stamp different versions and their rows stay re-derivable.
+#
+# WARNING — NONE OF THESE EIGHT NUMBERS HAS BEEN FITTED, and none has been through clinical
+# governance. They are the diagnostic component scale defined in `utility.py`
+# (INITIAL_ASSUMED_CAPS), which keeps the bed family's point magnitudes and reassigns their
+# meanings. Keeping the magnitudes is a deliberate choice with one consequence worth stating:
+# it makes a diagnostic utility numerically comparable to a bed utility, which is convenient
+# for reusing the auction and NOT a claim that a scan is worth the same as a bed.
+#
+# SIGN CONVENTION — caps carry their own sign, so Alternative Quality, Transport Burden and
+# Resource Stress are negative and the utility is a plain sum.
+#
+# THE EIGHT MAXIMA ARE COPIED VERBATIM FROM caps_ct.yaml. There is no evidence that a
+# modality changes the point scale, and perturbing the numbers to look modality-specific
+# would invent a calibration. Separate file, same values, stated openly — which is exactly
+# what five of the six bed caps tables do.
+
+resource_type: ultrasound
+status: unfitted_assumed_pending_clinical_governance
+
+components:
+  diagnostic_value:
+    cap: 60
+    meaning: Yield x probability of management impact x importance of that impact
+  urgency:
+    cap: 40
+    meaning: How harmful it is to delay the diagnostic ANSWER — not patient acuity
+  delay_pressure:
+    cap: 25
+    meaning: How much of the safe diagnostic delay has already been consumed
+  operational_impact:
+    cap: 25
+    meaning: Downstream flow unlocked — theatre lists, discharges, bed release
+  machine_scarcity:
+    cap: 20
+    meaning: How contested this modality's capacity is over the horizon
+  alternative_quality:
+    cap: -20
+    meaning: How well another modality answers the same clinical question
+  transport_burden:
+    cap: -10
+    meaning: Cost and risk of moving the patient to the machine
+  resource_stress:
+    cap: -10
+    meaning: Staffing, contrast, monitoring and equipment constraints

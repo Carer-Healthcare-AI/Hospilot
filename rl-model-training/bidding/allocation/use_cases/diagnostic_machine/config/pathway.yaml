@@ -1,0 +1,74 @@
+# Diagnostic pathway rules — the thresholds that decide WHICH exit, and how hard to compete.
+#
+# WHY THIS FILE EXISTS, twice over:
+#
+# 1. These numbers used to be Python constants (`MIN_ALTERNATIVE_YIELD_RATIO`,
+#    `_REENTRY_MINUTES`). A clinical threshold hard-coded in a policy module cannot be
+#    versioned, cannot be diffed by anyone without a Python checkout, and cannot be changed
+#    without a code review — which is the wrong gate for a decision that belongs to clinical
+#    governance rather than to engineering.
+#
+# 2. The diagnostic policy previously read the BED file `config/rules/pathway.yaml` for its
+#    compete and next-release thresholds. That is a bed artifact: its `min_probability` is
+#    calibrated against a discharge FORECAST, and diagnostic capacity is read off a booked
+#    timetable instead. Sharing the file also meant a diagnostic run loaded bed configuration,
+#    which the use-case separation forbids.
+#
+# `version` is stamped on every diagnostic auction row, so a decision can be re-derived
+# against the thresholds it was actually taken under.
+
+version: diagnostic_pathway_v1
+status: assumed_pending_clinical_governance
+
+# --- Which exit: an alternative modality --------------------------------------------------
+alternative:
+  # How much of the clinical question an alternative modality must answer before handing over
+  # to it counts as a RESOLUTION rather than as giving up. A ratio of the alternative's yield
+  # to the requested modality's, for this question.
+  #
+  # THE COUNTERPART OF THE BED RULE `alternative.min_safe_hold_minutes`, and it exists for the
+  # same reason: an exit that buys nothing is worse than staying in a losing auction. There,
+  # an alternative unit needing re-auctioning within the hour is not worth withdrawing into.
+  # Here, a modality that answers half the question is not worth withdrawing into — the
+  # patient gets a scan and the clinician still has no answer.
+  #
+  # WITHOUT THIS THRESHOLD THE MECHANISM LAUNDERS REQUESTS ONTO WHATEVER IS FREE. The
+  # simulator caught it: an intra-abdominal sepsis question (CT 0.90) was handed to an
+  # ultrasound answering 0.40 of it, purely because the ultrasound was idle.
+  #
+  # 0.8 IS A CHOICE, NOT A MEASUREMENT, and it is the most consequential unfitted number in
+  # this policy. Too low and the laundering returns; too high and a genuinely sufficient
+  # ultrasound is never used. Needs a clinical decision per question class, not one constant.
+  min_yield_ratio: 0.8
+
+# --- Which exit: waiting for scheduled capacity -------------------------------------------
+next_capacity:
+  enabled: true
+  # Do not wait on capacity less likely than this.
+  #
+  # 1.0 IS NOT A PLACEHOLDER — it is what the schedule actually supports. A scanner's next
+  # free slot is arithmetic over intervals already committed, not a prediction, so when
+  # `earliest_start` returns a time that time is certain up to the schedule changing. The bed
+  # rule's 0.70 exists because a discharge forecast is genuinely uncertain; importing that
+  # number here would invent uncertainty this resource does not have.
+  min_probability: 1.0
+
+# --- Which exit: standing down under monitoring -------------------------------------------
+reentry:
+  enabled: true
+  # Safe diagnostic delay below which a stood-down request re-enters bidding.
+  # Chosen to match the point at which `urgency` saturates (scoring.FULL_URGENCY_MINUTES),
+  # so a request re-enters exactly when the mechanism starts treating it as fully urgent.
+  safe_delay_below_minutes: 30
+
+# --- How hard to compete -------------------------------------------------------------------
+compete:
+  # Below this many minutes of safe waiting, the regime is Win Now. Asked of the diagnostic
+  # QUESTION rather than of the patient: how long can the ANSWER wait.
+  win_now_below_minutes: 60
+
+  # Minimum alpha in the Win Now regime. NULL BY DEFAULT, AND DELIBERATELY SO — the same
+  # reasoning the bed file gives. With this null, Win Now and Continue are honest labels over
+  # one unchanged derivation, and differentiating them by aggression is left to a policy that
+  # learned the difference rather than to a constant that asserts it.
+  win_now_alpha_floor: null

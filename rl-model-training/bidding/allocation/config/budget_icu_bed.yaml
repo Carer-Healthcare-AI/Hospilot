@@ -69,6 +69,10 @@ base_derivation:
     er: 107.1
     ot: 34.2
     ward: 45.7
+    # agent-extension (2026-08-27), UNFITTED — no worked example exists for an inbound
+    # ambulance patient; carried at ER's order of magnitude pending real data, same status
+    # as everything else in this file.
+    ambulance: 100.0
 
 # GOVERNANCE — the real departmental priority decision. Nothing in the data determines these.
 # "ER should win 4 of its 6 ICU requests" is a claim a governance meeting can accept, reject
@@ -77,6 +81,9 @@ targets:
   er:   {n_win: 4, n_req: 6}
   ot:   {n_win: 2, n_req: 3}
   ward: {n_win: 2, n_req: 4}
+  # agent-extension (2026-08-27), UNFITTED — same governance-pending status as the three
+  # above; not a claim about how ambulances should actually be prioritised.
+  ambulance: {n_win: 3, n_req: 5}
 targets_status: assumed_pending_governance   # BUILD_SPEC 7.5 decisions 2 and 4
 
 # --- Shift factors ---------------------------------------------------------------------
@@ -118,6 +125,9 @@ factors:
       er: 1.15
       ot: 1.05
       ward: 1.00
+      # agent-extension (2026-08-27), UNFITTED — between ER's and OT's pending real
+      # admission-urgency data for ambulance-sourced requests.
+      ambulance: 1.10
     # The mapping the values should be recomputed from, once the log exists.
     thresholds:
       admission_within_minutes: 30

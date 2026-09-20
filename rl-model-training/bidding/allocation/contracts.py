@@ -1,7 +1,22 @@
 """Frozen types that cross layer boundaries. Imports nothing else from the package.
 
-This module keeps the boundary contracts explicit so values that cross between ingest,
-features, utility, budget, and auction layers remain stable and well typed.
+Three invariants are enforced here rather than by convention, because every one of them has
+already been got wrong somewhere in the source documents:
+
+1. **Absent is not zero.** ``Signal.value is None`` means the input was missing.
+   ``RL_STEPS_END_TO_END.md`` D.0: *"A missing factor is dropped, never treated as zero. Zero
+   means 'this patient is fine', which would rank an untested patient above a tested one."*
+   A ``float`` field could not express the difference; ``Signal`` can.
+
+2. **Caps carry their own sign.** Alternative Availability is ``-20`` and Resource Stress is
+   ``-10``. Points are ``cap * score`` with ``score`` in ``[0, 1]``, so they come out negative
+   and the utility is a plain sum. ``D.0`` writes the utility with minus signs in front of
+   both, but Appendix C sums the already-negative values (45.4 + 23.7 + 15.4 + 16.7 + 11.2 +
+   5.3 - 2.4 - 8.2 = 107.1). Following the prose would double-negate them.
+
+3. **Components are scored per agent kind.** ``Operational`` (D.5) and ``Waiting/Delay`` (D.3)
+   are defined differently for a surgical bidder than a medical one — that is the framework's
+   design, not an accommodation. ``AgentKind`` is therefore in the ``Component`` signature.
 """
 
 from __future__ import annotations
@@ -11,18 +26,38 @@ from datetime import datetime
 from enum import Enum
 from typing import Mapping, Protocol, Sequence
 
+from allocation.lifecycle import auction_exit_actions, lifecycle_errors, terminal_actions
+
 # --------------------------------------------------------------------------------------
 # Enumerations
 # --------------------------------------------------------------------------------------
 
 
 class AgentKind(str, Enum):
-    """A bidding department."""
+    """A bidding department.
+
+    ``ICU`` is present because RL-Steps section 3 gives ICU internal demand a TTL, but never
+    models it as a bidder. Whether it bids and holds a budget is AGENT_BUDGET open decision 3
+    (BUILD_SPEC F-12) — unresolved, so it is declared but not yet eligible in any profile.
+
+    ``AMBULANCE`` and ``APPOINTMENTS`` (agent-extension, additive-only) follow the same
+    pattern: declaring a member here does not make it a bidder anywhere by itself — a
+    profile's ``eligible_agents`` decides that, per resource type. Nothing in this module or
+    elsewhere iterates ``AgentKind`` exhaustively, so adding a member here changes no
+    existing behaviour for ER/OT/WARD/ICU, or for the critical-care-equipment family, which
+    only ever names the three agents it uses by literal value.
+    """
 
     ER = "er"
     OT = "ot"
     WARD = "ward"
     ICU = "icu"
+    #: An inbound prehospital patient — bed family only. Not yet eligible on any profile
+    #: until that profile's ``eligible_agents`` names it.
+    AMBULANCE = "ambulance"
+    #: Scheduled/outpatient diagnostic demand — diagnostic-machine family only. Not yet
+    #: eligible on any modality profile until that profile's ``eligible_agents`` names it.
+    APPOINTMENTS = "appointments"
 
 
 class ResourceType(str, Enum):
@@ -59,7 +94,13 @@ class ResourceType(str, Enum):
 
 
 class AuctionMode(str, Enum):
-    """Why this auction is running."""
+    """Why this auction is running.
+
+    Only ``LIVE`` holds a bed, decrements a real budget, and is valid RL training data.
+    BUILD_SPEC section 1 of the trigger decision: without this column, hand-fired test runs
+    are indistinguishable from real allocations afterwards, and the blocked models in
+    section 6.2 would train on auctions where no bed was ever held.
+    """
 
     LIVE = "live"
     SIMULATION = "simulation"
@@ -82,7 +123,7 @@ class TriggerSource(str, Enum):
 
 
 class ComponentName(str, Enum):
-    """The eight utility components used in the auction scoring model."""
+    """The eight utility components of RL_STEPS_END_TO_END.md section 2."""
 
     CLINICAL_BENEFIT = "clinical_benefit"
     URGENCY = "urgency"
@@ -155,9 +196,44 @@ class QAction(str, Enum):
     WITHDRAW_UNPLANNED = "withdraw_unplanned"
 
     @property
-    def exits(self) -> bool:
-        """True when this action leaves the auction. Four of the six do."""
+    def leaves_auction(self) -> bool:
+        """True when this action stops the candidate bidding in the auction it is in now.
+
+        Four of the six. **Not the same question as terminality** — see
+        :attr:`terminates_request` and :mod:`allocation.lifecycle`.
+        """
         return self in _EXITING
+
+    @property
+    def terminates_request(self) -> bool:
+        """True when this action ends the candidate's participation for good. **One of the six.**
+
+        Bed allocation's split is not critical care's, and reading one family's terminality onto
+        the other is precisely the mistake this predicate exists to stop.
+        :class:`~allocation.pathway.participation.ParticipationLedger` is the authority, and it
+        says so explicitly in its own state table:
+
+        ``WITHDRAW_ALTERNATIVE``  ``RESOLVED``    has a bed elsewhere for the whole horizon —
+                                                  out of the queue, terminal
+        ``RE_ENTER_LATER``        ``MONITORED``   out until a monitor fires, and returned to the
+                                                  pool if it lapses without firing
+        ``AWAIT_NEXT_RESOURCE``   ``DEFERRED``    bids again in the next auction
+        ``WITHDRAW_UNPLANNED``    ``ACTIVE``      **back in the pool with nothing arranged**
+
+        An unplanned withdrawal is therefore *not* terminal here, although it is in critical
+        care, where it writes ``ABANDONED`` and retires the request. The patient still needs a
+        bed and still bids; ``abandoned_last`` records what happened without ending anything.
+        """
+        return self is QAction.WITHDRAW_ALTERNATIVE
+
+    @property
+    def exits(self) -> bool:
+        """Deprecated spelling of :attr:`leaves_auction`, kept so existing callers still read.
+
+        ``exits`` reads as "the candidate is done" and means "the candidate stopped bidding".
+        New code must say which of the two it means.
+        """
+        return self.leaves_auction
 
     @property
     def arranges_care(self) -> bool:
@@ -182,6 +258,20 @@ _EXITING = frozenset(
         QAction.WITHDRAW_UNPLANNED,
     }
 )
+
+#: The four actions that leave the current auction, terminal or not. The predicate for bid
+#: mechanics and round accounting.
+AUCTION_EXIT_ACTIONS: frozenset[QAction] = auction_exit_actions(QAction)
+
+#: The one action that ends a candidate's participation. The predicate for lifecycle accounting
+#: and for any claim that a trajectory is absorbing. See :attr:`QAction.terminates_request`.
+TERMINAL_ACTIONS: frozenset[QAction] = terminal_actions(QAction)
+
+_LIFECYCLE_PROBLEMS = lifecycle_errors(QAction)
+if _LIFECYCLE_PROBLEMS:  # pragma: no cover - a structural error, caught at import
+    raise RuntimeError(
+        "QAction does not describe a lifecycle: " + "; ".join(_LIFECYCLE_PROBLEMS)
+    )
 
 
 class CareNeed(str, Enum):
@@ -421,6 +511,18 @@ class Candidate:
     severity_band: str | None = None
     needs: frozenset[CareNeed] = field(default_factory=frozenset)
     department_id: str | None = None
+    #: Minutes until physical arrival, for a candidate not yet inside the hospital (e.g. an
+    #: inbound AMBULANCE patient). ``None`` for every candidate already on site — this is
+    #: NOT the same axis as ``arrived_at``, which is strictly a moment *in the past* for an
+    #: already-arrived patient (``Waiting._delay`` reads it as time-SINCE-arrival). Overloading
+    #: ``arrived_at`` with a future timestamp would make that elapsed-time computation go
+    #: negative; this is a separate field for exactly that reason.
+    eta_minutes: float | None = None
+    #: An explicit safe-wait window, for a candidate with no ``current_unit`` to look one up
+    #: for (``pathway.options.safe_wait_minutes`` is keyed on ``current_unit`` and returns
+    #: ``None`` when it is absent). ``None`` for every candidate that already has a
+    #: ``current_unit`` — the existing unit-keyed lookup keeps deciding for them, unchanged.
+    safe_wait_minutes_override: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -480,7 +582,7 @@ class ReleaseEvent:
 
     A real predicted discharge, a CDC row, or a hand-fired test query all become one of
     these. ``auction_key`` is derived from resource plus release-time bucket so a re-firing
-    prediction cannot open two auctions on one bed.
+    prediction cannot open two auctions on one bed (RL_STEPS_END_TO_END.md section 7).
     """
 
     event_id: str
@@ -661,8 +763,9 @@ class Decision:
 class Bid:
     """One agent's position in one round. Losers and withdrawals are recorded too.
 
-    The log must record both a winning and a losing position so the outcome remains
-    auditable and comparable across the whole auction.
+    RL_STEPS_END_TO_END.md sections 23-24: both a winning and a losing episode are needed,
+    *"which is why the log must record the losers' bids and utilities, not only the
+    winner's."*
     """
 
     auction_id: str
@@ -677,6 +780,20 @@ class Bid:
     contention: float | None = None
     outcome_factor: float | None = None
     cost: float | None = None
+    #: **The encoded state this decision was actually made against.** Captured at the decision
+    #: point, before the bid it produced exists.
+    #:
+    #: Without it the dataset writer re-encoded from the CLOSED ``AuctionResult``, so a
+    #: transition paired the final action with features describing the world *after* that
+    #: action: `rounds_left` read 0.010 where the decision saw 0.562, and `is_leading`,
+    #: `behind_by` and `leader_bid` disagreed with the decision state in ~90% of auctions. The
+    #: learner was fitting values on states that already encoded the outcome, then being asked
+    #: at serving time to act on states that did not.
+    #:
+    #: Carried on the row rather than reconstructed later on purpose: a second implementation
+    #: of "what the state was at that moment" is a second chance to get the timing wrong.
+    #: ``None`` when no encoder was supplied — the auction engine does not require one.
+    decision_state: tuple[float, ...] | None = None
     #: Which of the five decisions produced this row. ``None`` only for the synthetic rows
     #: :func:`~allocation.auction.state.standing_bids` builds to show a policy the leader
     #: board — those describe a position, not a decision, and inventing a Q-action for them
@@ -716,8 +833,9 @@ class RoundState:
 class BudgetState:
     """One row of ``allocation.agent_budget`` — a department's capacity for one shift.
 
-    All four factors are stored, not just the product, so the budget can be audited and
-    re-derived after a cap or rule change.
+    All four factors are stored, not just the product: a budget with no record of which
+    factor moved it is unauditable and cannot be re-derived after a cap change
+    (AGENT_BUDGET.md section 10).
     """
 
     agent: AgentKind

@@ -51,7 +51,14 @@ from allocation.contracts import (
     UtilityBreakdown,
 )
 from allocation.pathway.plans import build_plan
-from allocation.rl.encoder import ACTION_INDEX, ACTIONS, SIZE, StateEncoder
+from allocation.rl.encoder import (
+    ACTION_INDEX,
+    ACTIONS,
+    REGIMES,
+    SIZE,
+    StateEncoder,
+    regime_of,
+)
 
 #: Weights per action, plus the alpha head. Flattened, this is what CEM searches over.
 PARAM_COUNT = len(ACTIONS) * (SIZE + 1) + (SIZE + 1)
@@ -71,6 +78,71 @@ class QWeights:
     #: ignored: it runs, emits plausible numbers, and is about a different world.
     fabrication_version: str = ""
     policy_version: str = "rl-linear-v1"
+    #: Action names whose weight row never received a gradient (``qlearn.coverage``'s
+    #: ``UNTRAINED`` verdict) — a zero row printing "worth nothing" because nothing was learned,
+    #: not because it was. CEM-fitted policies leave this empty: every row there came out of the
+    #: population search, so a zero head (if any) is a fitted zero, not a missing one.
+    untrained_actions: tuple[str, ...] = ()
+    #: Whether this policy is forbidden from choosing ``WITHDRAW_UNPLANNED`` while any other
+    #: action is feasible — ``auction.yaml:97``'s ``never_abandon_when_planned_exit_available``,
+    #: enforced in the argmax rather than in the reward.
+    #:
+    #: **Recorded on the weights, not passed at construction, because it is part of what the
+    #: policy IS.** ``LinearQPolicy`` is built from a ``QWeights`` in seven places — the
+    #: evaluation, the scorecard, the shadow pilot, the CSV exporters — and a constraint that
+    #: had to be re-supplied at each of them is a constraint that will be missing at one of
+    #: them. A policy trained under the mask and then *scored* without it would reproduce
+    #: exactly the abandonments the mask exists to prevent, and the run would read as a failure
+    #: of the mask rather than of the plumbing.
+    #:
+    #: Defaults to ``False``, so every artifact fitted before 2026-08-24 loads and behaves
+    #: exactly as it did: this is a property a run opts into, never one applied retroactively.
+    mask_unplanned: bool = False
+    #: Optional regime-conditioned aggression heads: one ``(row, bias)`` per entry in
+    #: ``encoder.REGIMES`` — opening, leading, overtaking.
+    #:
+    #: **Empty means single-head, and that is the default so every existing artifact loads
+    #: unchanged.** The single head is not deprecated; it is the control this architecture is
+    #: measured against. A three-head policy is strictly more expressive: set all three equal
+    #: and it computes exactly what the single head computes.
+    #:
+    #: The regime is derived from the STATE (``encoder.regime_of``), never from the label, so
+    #: it is available in a live auction. Verified to agree with the heuristic's own rule
+    #: selection on 2,536 of 2,536 demo samples.
+    #:
+    #: Deliberately **outside** ``flat()`` / ``from_flat()`` / ``PARAM_COUNT``: those define the
+    #: vector CEM and PPO search over, and widening it would silently invalidate every fitted
+    #: artifact in both families for an experiment neither is running.
+    alpha_heads: tuple[tuple[float, ...], ...] = ()
+    alpha_head_biases: tuple[float, ...] = ()
+
+    def __post_init__(self) -> None:
+        if len(self.alpha_heads) != len(self.alpha_head_biases):
+            raise ValueError(
+                f"{len(self.alpha_heads)} alpha heads against "
+                f"{len(self.alpha_head_biases)} biases"
+            )
+        if self.alpha_heads and len(self.alpha_heads) != len(REGIMES):
+            raise ValueError(
+                f"expected {len(REGIMES)} regime heads ({', '.join(REGIMES)}), got "
+                f"{len(self.alpha_heads)}"
+            )
+        for row in self.alpha_heads:
+            if len(row) != SIZE:
+                raise ValueError(f"alpha head has {len(row)} weights, encoder emits {SIZE}")
+
+    @property
+    def regime_conditioned(self) -> bool:
+        return bool(self.alpha_heads)
+
+    def alpha_params(self, regime: int) -> tuple[tuple[float, ...], float]:
+        """The ``(row, bias)`` that answers for this regime.
+
+        Falls through to the single head when none are fitted, so callers never branch.
+        """
+        if not self.alpha_heads:
+            return self.alpha_row, self.alpha_bias
+        return self.alpha_heads[regime], self.alpha_head_biases[regime]
 
     @classmethod
     def zeros(cls, encoder_version: str, fabrication_version: str = "") -> "QWeights":
@@ -132,6 +204,10 @@ class QWeights:
                     "biases": list(self.biases),
                     "alpha_row": list(self.alpha_row),
                     "alpha_bias": self.alpha_bias,
+                    "untrained_actions": list(self.untrained_actions),
+                    "mask_unplanned": self.mask_unplanned,
+                    "alpha_heads": [list(r) for r in self.alpha_heads],
+                    "alpha_head_biases": list(self.alpha_head_biases),
                 },
                 indent=2,
             ),
@@ -155,6 +231,14 @@ class QWeights:
             encoder_version=str(body["encoder_version"]),
             fabrication_version=str(body.get("fabrication_version", "")),
             policy_version=str(body.get("policy_version", "rl-linear-v1")),
+            untrained_actions=tuple(body.get("untrained_actions", ())),
+            mask_unplanned=bool(body.get("mask_unplanned", False)),
+            alpha_heads=tuple(
+                tuple(float(x) for x in r) for r in body.get("alpha_heads", ())
+            ),
+            alpha_head_biases=tuple(
+                float(x) for x in body.get("alpha_head_biases", ())
+            ),
         )
         current = (encoder or StateEncoder()).version
         if weights.encoder_version != current:
@@ -235,7 +319,32 @@ class LinearQPolicy:
 
         # Mask, do not penalise. An exit whose plan cannot be named would fail to construct
         # anyway, so choosing it is not a mistake to be trained out — it is impossible.
-        best = max(feasible, key=lambda a: q_values[a])
+        #
+        # A *second* mask, for a different reason: an untrained head scores exactly 0.0 in
+        # every state, not because it was learned to be worth nothing but because it never
+        # received a gradient (qlearn.coverage's UNTRAINED verdict). Left unmasked, a greedy
+        # argmax picks it — usually withdraw_unplanned — whenever every trained action scores
+        # negative, which is exactly the sickest states. Prefer any trained, feasible action;
+        # fall back to the untrained one only when it is the sole option left.
+        trusted = [a for a in feasible if a.value not in self._weights.untrained_actions]
+        candidates = trusted or feasible
+        # A *third* mask, and the two above do not subsume it: `untrained_actions` is about
+        # which rows received a gradient, and `_feasible` is about which actions mechanically
+        # exist. Neither says anything about whether abandoning a patient is permitted when
+        # something could have been arranged instead. See `learned_feasible`.
+        candidates = self.learned_feasible(candidates)
+        # **Canonical order before the argmax, because ties are not rare and `frozenset`
+        # iteration order is not stable across processes.** `_feasible` returns a frozenset of
+        # `QAction`, a str enum, and Python randomises string hashing per process — so `max`
+        # over it resolves a tie by whichever element that process happened to order first.
+        #
+        # Ties are the common case exactly where it matters most: `QWeights.zeros()` starts
+        # every TD run with all-zero rows, and an untrained row scores exactly 0.0 by design.
+        # The opening rounds of a training run were therefore choosing actions by hash order,
+        # which made a run irreproducible across processes even at a fixed `--seed` — three
+        # identical invocations produced 314, 373 and 503 encoder calls and 82, 0 and 0
+        # abandonments. Sorting by `ACTIONS` makes the tie-break the declared preference order.
+        best = max(sorted(candidates, key=ACTIONS.index), key=lambda a: q_values[a])
         published = {a: q for a, q in q_values.items() if a in feasible}
 
         if not best.exits:
@@ -273,10 +382,41 @@ class LinearQPolicy:
         head is flat outside its range, and CEM's elite set would carry no information about
         which direction to move parameters that are saturated.
         """
-        z = sum(x * s for x, s in zip(self._weights.alpha_row, state)) + self._weights.alpha_bias
+        row, bias = self._weights.alpha_params(regime_of(state))
+        z = sum(x * s for x, s in zip(row, state)) + bias
         return 1.0 / (1.0 + math.exp(-max(-30.0, min(30.0, z))))
 
     # -- feasibility and plans ---------------------------------------------------------
+
+    def learned_feasible(self, actions: Sequence[QAction]) -> Sequence[QAction]:
+        """The actions the *learned* argmax may choose from, once the abandonment rule applies.
+
+        ``WITHDRAW_UNPLANNED`` is removed — it is the only action the ``aband == 0`` criterion
+        counts, and ``auction.yaml:97``'s ``never_abandon_when_planned_exit_available`` says the
+        same thing in the rulebook. Byte-for-byte the rule ``PPOPolicy.learned_feasible``
+        applies (``ppo_policy.py:323-343``), deliberately: the two arms are compared on the same
+        gate, so they must be constrained by the same rule rather than by two readings of it.
+
+        **The removal is conditional, and it has to be.** ``_feasible`` guarantees
+        ``WITHDRAW_UNPLANNED`` is always in the set (see below) precisely because a patient who
+        cannot win, has no alternative and has no predicted bed *is* abandoned. In that state it
+        is the only member, and subtracting it would leave the argmax with nothing to range
+        over. So when removal would empty the set, it is put back: the constraint is *never
+        choose abandonment when anything else is available*, which is what the rule says.
+
+        **Why this is needed online and was not needed offline.** A heuristic-logged corpus
+        cannot contain an abandonment decision, so an offline fit cannot learn to abandon — all
+        four offline fits scored 0. ``WITHDRAW_UNPLANNED`` is also unreachable by exploration at
+        any epsilon: ``EpsilonGreedy`` builds its own plan and ``plans.py:28`` refuses this
+        action by definition, so a random draw falls back to greedy. The one path that reaches
+        it is a *learned* policy choosing it greedily — which is exactly how the first online
+        run abandoned 74 patients (``RL_EXPERIMENTS_LOG.md:130-135``). Going online is what
+        creates the failure, so going online is where the constraint has to bind.
+        """
+        if not self._weights.mask_unplanned:
+            return actions
+        reduced = [a for a in actions if a is not QAction.WITHDRAW_UNPLANNED]
+        return reduced or actions
 
     def _feasible(
         self,

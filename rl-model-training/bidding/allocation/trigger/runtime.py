@@ -25,6 +25,7 @@ from typing import Mapping, Sequence
 
 from allocation.audit.records import AuditBundle
 from allocation.audit.writer import build_bundle
+from allocation.auction.rounds import StateHook
 from allocation.auction.runner import AuctionOutcome, run_auction
 from allocation.budget.base import BaseBudget, derive_all
 from allocation.budget.factors import compute_factors
@@ -243,6 +244,7 @@ def run_allocation(
     budgets: Mapping[AgentKind, BudgetState] | None = None,
     charge_budgets: bool | None = None,
     read_alternatives: bool = False,
+    state_hook: "StateHook | None" = None,
 ) -> AllocationRun:
     """Run one allocation from trigger to audit bundle.
 
@@ -459,6 +461,7 @@ def run_allocation(
         policy_name=policy_name,
         charge_budgets=charge_budgets,
         pathways=pathway_source,
+        state_hook=state_hook,
     )
     result = outcome.result
 

@@ -24,6 +24,7 @@ tabulating it is why this policy generalises past the worked example at all.
 
 from __future__ import annotations
 
+from allocation.budget.spend import max_affordable_bid
 from allocation.config import Config
 from allocation.contracts import (
     Action,
@@ -38,7 +39,6 @@ from allocation.contracts import (
     RoundState,
     UtilityBreakdown,
 )
-from allocation.budget.spend import max_affordable_bid
 from allocation.features.scale import clamp
 
 EPS = 1e-9

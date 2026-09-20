@@ -5,7 +5,7 @@
 """
 import sys
 
-from allocation import profiles  # noqa: F401 — registers the family
+from allocation.use_cases.bed import profiles  # noqa: F401 — registers the family
 from allocation.trigger.query import UnknownUseCase, matched_tokens, resolve_profile
 
 DEFAULTS = [
