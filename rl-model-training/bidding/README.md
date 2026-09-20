@@ -171,14 +171,14 @@ The preregistered comparison is against a fixed non-RL BASELINE — a ridge fit 
 return-to-go — and not against the heuristic, which is excluded from the run by construction.
 A run passes only if it clears both gates: the lower bound of the seed-clustered 95 per cent
 confidence interval for `(Q - BASELINE)` is above zero, **and** the safety gate shows no
-increase in abandonment or expiry, no mask violations and no non-finite values.
+regression on any of its checks.
 
 Reported results for the two families, from the research tree:
 
 | Family | Q − BASELINE | 95% CI | Primary | Safety |
 |---|---:|---|---|---|
 | Bed | +82.18 | [61.05, 104.12] | pass | pass |
-| Diagnostic | +1.99 | [1.78, 2.21] | pass | fail — abandonment +17 |
+| Diagnostic | +1.99 | [1.78, 2.21] | pass | fail |
 
 Neither artifact in `../artifacts/model/` is the artifact those runs measured, so no
 improvement claim is made from them here.
