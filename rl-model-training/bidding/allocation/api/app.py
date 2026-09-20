@@ -208,6 +208,8 @@ def create_app(
     api_key: str | None = None,
     policy_path: Path | None = None,
     policy_live: bool = False,
+    diagnostic_policy_path: Path | None = None,
+    diagnostic_policy_live: bool = False,
 ) -> FastAPI:
     """Build the app.
 
@@ -229,12 +231,17 @@ def create_app(
         api_key_configured=bool(api_key),
         policy_path=policy_path,
         policy_live=policy_live,
+        diagnostic_policy_path=diagnostic_policy_path,
+        diagnostic_policy_live=diagnostic_policy_live,
     )
     config = service.load(settings)
     # Loaded once, at startup, and for the same reason the config is: so a mismatched encoder
     # or a refused --live-policy stops the process rather than failing every request that asks
     # for it. Weights are immutable; the policy wrapper around them is built per request.
     weights = service.load_policy(settings, config)
+    # The diagnostic family loads its own, for the same reason and at the same moment: a
+    # mismatched encoder should stop the process, not every request that asks for it.
+    diagnostic_policy = service.load_diagnostic_policy(settings, config)
     store = RunStore(settings.store_size)
 
     app = FastAPI(
@@ -246,6 +253,7 @@ def create_app(
     app.state.config = config
     app.state.store = store
     app.state.weights = weights
+    app.state.diagnostic_policy = diagnostic_policy
 
     @app.exception_handler(ApiError)
     async def _api_error(_: Request, exc: ApiError) -> JSONResponse:
@@ -336,11 +344,13 @@ def create_app(
         try:
             if body.scenario:
                 return diagnostic.run_scenario(
-                    config, body.scenario, regime=body.regime, derivation=body.derivation
+                    config, body.scenario, regime=body.regime,
+                    derivation=body.derivation, policy=app.state.diagnostic_policy,
                 )
             if body.query:
                 return diagnostic.run_query(
-                    config, body.query, regime=body.regime, derivation=body.derivation
+                    config, body.query, regime=body.regime,
+                    derivation=body.derivation, policy=app.state.diagnostic_policy,
                 )
             # Inline state carries patient data. Same rule, and the same reason, as
             # `candidates` on the bed route: an operator has to have decided who may call.

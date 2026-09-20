@@ -86,13 +86,6 @@ FEATURES: tuple[tuple[str, float], ...] = (
     ("alternative_available", 1.0),
     ("release_probability", 1.0),
     ("release_known", 1.0),
-    # --- agent-extension (2026-08-27): AMBULANCE's not-yet-arrived state -------------------
-    # Appended, not inserted, so every existing feature keeps its index. Absent (every
-    # candidate already inside the hospital) encodes as 0.0 plus a false flag, same
-    # absence-is-a-flag rule as safe_wait/release above — never a bare 0.0 that a model could
-    # confuse with "arriving right now".
-    ("eta", 60.0),                 # minutes until physical arrival
-    ("eta_known", 1.0),
 )
 
 #: Mirrors `auction.yaml`'s `policy.heuristic` block, which `HeuristicPolicy` reads for the
@@ -215,7 +208,6 @@ class StateEncoder:
         alternative = getattr(options, "best_alternative", None) if options else None
         wait = getattr(options, "safe_wait_minutes", None) if options else None
         probability = getattr(options, "next_release_probability", None) if options else None
-        eta = getattr(options, "eta_minutes", None) if options else None
 
         raw: dict[str, float] = {
             "utility": utility,
@@ -243,8 +235,6 @@ class StateEncoder:
             "alternative_available": 1.0 if alternative else 0.0,
             "release_probability": probability if probability is not None else 0.0,
             "release_known": 1.0 if probability is not None else 0.0,
-            "eta": eta if eta is not None else 0.0,
-            "eta_known": 1.0 if eta is not None else 0.0,
         }
 
         return tuple(

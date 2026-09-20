@@ -185,8 +185,8 @@ improvement claim is made from them here.
 
 ## Use the trained model
 
-Both families run the deterministic heuristic by default. That is what the CLI and the HTTP
-routes below serve.
+Both families run the deterministic heuristic by default: no artifact is loaded unless the
+process is started with one. That is what the CLI and the HTTP routes below serve.
 
 Run one bed auction:
 
@@ -232,10 +232,26 @@ curl.exe -s -X POST http://127.0.0.1:8000/diagnostic/auction `
 was started with `ALLOCATION_API_KEY` set, the same rule `candidates` follows on
 `POST /auction`. No clinical value is defaulted; a missing one is refused and named.
 
-To serve a Q policy, the process is started with a policy path, and the artifact's encoder
-version must match the running build. The two artifacts in `../artifacts/model/` were fitted
-under earlier encoders and are refused by this build; serving a policy here requires refitting
-against the current encoder.
+To serve a trained policy instead, start the process with the artifact:
+
+```powershell
+python -m allocation.api `
+  --policy ../artifacts/model/bed_q_policy.v1.json `
+  --diagnostic-policy ../artifacts/model/diagnostic_q_policy.v1.json
+```
+
+Both are loaded once at startup, so a mismatched artifact stops the process rather than
+failing every request that asks for it. Each family loads its own: the two carry different
+encoders and different layouts, and the diagnostic artifact is a bed-style one, routed to its
+own loader by the `kind` field rather than by filename.
+
+Loaded this way a policy **shadows** by default — the deterministic bidder still allocates and
+the learned choices are recorded. Add `--live-policy` or `--diagnostic-live-policy` to let one
+decide. That is refused unless `auction.yaml` declares an enforced safety posture, so a
+learned policy cannot allocate while no hard constraint is checked.
+
+`GET /health` reports which policies are loaded and whether they are acting, and every
+diagnostic response names the bidder that actually decided it.
 
 ## Main files
 

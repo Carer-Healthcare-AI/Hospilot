@@ -11,6 +11,8 @@ resolver cannot ground refuses with its evidence instead of inventing a clinical
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -250,3 +252,71 @@ def test_the_bed_routes_do_not_advertise_diagnostic_resources(client):
     """`/use-cases` is the bed registry. A scanner is not a bed and must not appear there."""
     resources = {p["resource_type"] for p in client.get("/use-cases").json()["profiles"]}
     assert resources == {"ed_bed", "hdu_bed", "icu_bed", "pacu_bed", "resus_bed", "ward_bed"}
+
+
+# --- serving a learned policy ------------------------------------------------------------
+
+ARTIFACT = Path(__file__).resolve().parent.parent.parent / "artifacts" / "model" / (
+    "diagnostic_q_policy.v1.json"
+)
+
+requires_artifact = pytest.mark.skipif(
+    not ARTIFACT.is_file(), reason="the diagnostic policy artifact is not on disk"
+)
+
+
+def test_no_policy_is_loaded_by_default(client):
+    """The safe default: the deterministic bidder decides unless an operator says otherwise."""
+    from allocation.api.app import create_app
+
+    assert create_app().state.diagnostic_policy is None
+    body = client.post("/diagnostic/auction", json={"scenario": "three_way_contention"}).json()
+    assert body["policy"] == "heuristic"
+
+
+@requires_artifact
+def test_a_bed_style_artifact_loads_through_its_own_serving_path():
+    """`qlearn.DiagnosticQPolicy` refuses this artifact by design — different kind, different
+    encoder width. The sibling loader is what serves it, and picking between them is by
+    `kind`, not by filename."""
+    from allocation.api.app import create_app
+
+    app = create_app(diagnostic_policy_path=ARTIFACT)
+    assert app.state.diagnostic_policy is not None
+
+
+@requires_artifact
+def test_the_response_names_the_policy_that_actually_decided():
+    """A caller reading a ladder has no other way to tell which bidder produced it."""
+    from allocation.api.app import create_app
+
+    served = TestClient(create_app(diagnostic_policy_path=ARTIFACT))
+    body = served.post("/diagnostic/auction", json={"scenario": "three_way_contention"}).json()
+    assert body["policy"] != "heuristic"
+    assert body["policy"] == "diagnostic_bedstyle_q"
+
+
+@requires_artifact
+def test_the_served_policy_is_actually_consulted():
+    """Agreeing with the heuristic is a result; never being called is a wiring bug, and the
+    two are indistinguishable from the response alone."""
+    from allocation.config import load_config
+    from allocation.use_cases.diagnostic_machine import research_serving
+    from allocation.use_cases.diagnostic_machine.evaluate import run_policy
+    from allocation.use_cases.diagnostic_machine.scenarios import SCENARIOS
+
+    config = load_config()
+    policy = research_serving.load_and_serve(ARTIFACT, config)
+    calls = []
+    original = policy.decide
+    policy.decide = lambda *a, **k: (calls.append(1), original(*a, **k))[1]
+
+    run_policy(config, SCENARIOS["three_way_contention"](), lambda scoped: policy, regime="normal")
+    assert calls, "the served policy was never asked for a decision"
+
+
+def test_live_serving_requires_a_policy_to_serve():
+    from allocation.api.app import create_app
+
+    with pytest.raises(Exception):
+        create_app(diagnostic_policy_live=True)

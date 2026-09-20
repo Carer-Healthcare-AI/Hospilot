@@ -69,6 +69,13 @@ class DiagnosticRefused(ValueError):
         self.detail = dict(detail or {})
 
 
+def _policy_name(policy: Any) -> str:
+    """What decided this run: the served policy's own name, or the heuristic."""
+    if policy is None:
+        return "heuristic"
+    return getattr(policy, "name", None) or type(policy).__name__
+
+
 # ---------------------------------------------------------------------------------------
 # discovery
 # ---------------------------------------------------------------------------------------
@@ -159,9 +166,18 @@ def _schedule_json(result: Any) -> list[dict[str, Any]]:
 
 
 def run_scenario(
-    config: Config, name: str, regime: str = "normal", derivation: bool = False
+    config: Config,
+    name: str,
+    regime: str = "normal",
+    derivation: bool = False,
+    policy: Any = None,
 ) -> dict[str, Any]:
-    """Run one named fixture and return its outcome."""
+    """Run one named fixture and return its outcome.
+
+    ``policy`` is the served learned policy, or ``None`` for the deterministic bidder. The
+    response names whichever decided, because a caller reading a ladder has no other way to
+    tell, and "which bidder produced this" is the first thing a reviewer needs.
+    """
     if name not in SCENARIOS:
         raise DiagnosticRefused(
             f"unknown scenario {name!r}", {"available": sorted(SCENARIOS)}
@@ -170,7 +186,8 @@ def run_scenario(
         raise DiagnosticRefused(f"unknown regime {regime!r}", {"available": list(REGIMES)})
 
     scenario = SCENARIOS[name]()
-    result = run_policy(config, scenario, None, regime=regime)
+    factory = (lambda scoped: policy) if policy is not None else None
+    result = run_policy(config, scenario, factory, regime=regime)
     payload: dict[str, Any] = {
         "family": "diagnostic_machine",
         "scenario": scenario.name,
@@ -178,7 +195,7 @@ def run_scenario(
         "modality": scenario.modality.value,
         "regime": regime,
         "expects": scenario.expects,
-        "policy": "heuristic",
+        "policy": _policy_name(policy),
         "binding": False,
         "metrics": _metrics_json(result),
         "schedule": _schedule_json(result),
@@ -189,7 +206,11 @@ def run_scenario(
 
 
 def run_query(
-    config: Config, text: str, regime: str = "normal", derivation: bool = False
+    config: Config,
+    text: str,
+    regime: str = "normal",
+    derivation: bool = False,
+    policy: Any = None,
 ) -> dict[str, Any]:
     """Resolve a sentence to a scenario and run it, or refuse with what was missing."""
     resolution = resolve(text)
@@ -203,7 +224,9 @@ def run_query(
                 "note": "No clinical value was invented and no auction was opened.",
             },
         )
-    payload = run_scenario(config, resolution.scenario, regime=regime, derivation=derivation)
+    payload = run_scenario(
+        config, resolution.scenario, regime=regime, derivation=derivation, policy=policy
+    )
     payload["resolved_from"] = {
         "query": text,
         "scenario": resolution.scenario,

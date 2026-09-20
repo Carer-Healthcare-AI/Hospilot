@@ -167,32 +167,6 @@ def test_ambulance_bid_amount_changes_across_rounds():
     assert len(set(amounts)) > 1, "bid amount must actually move across rounds"
 
 
-def test_the_alpha_head_mechanism_produces_different_alpha_for_ambulance_than_arrived_agents():
-    """Mechanism-level proof (no training): a hand-built, deliberately non-zero alpha_row
-    that weights the NEW eta feature produces a genuinely different alpha for AMBULANCE
-    (eta_known=1) than for the three already-arrived agents (eta_known=0, eta=0) -- proving
-    the sigmoid-over-alpha-head architecture is real and state-dependent, and that the new
-    features actually reach it, without claiming any trained efficacy.
-    """
-    alpha_row = tuple(0.0 for _ in range(SIZE - 2)) + (-8.0, 0.0)  # weight against `eta`
-    weights = QWeights(
-        rows=tuple(tuple(0.0 for _ in range(SIZE)) for _ in range(6)),
-        biases=tuple(0.0 for _ in range(6)),
-        alpha_row=alpha_row, alpha_bias=2.0,
-        encoder_version=ENCODER_VERSION, fabrication_version="alpha-mechanism-test",
-    )
-    run = _run(LinearQPolicy(CONFIG, weights))
-    alphas_by_agent: dict[AgentKind, list[float]] = {}
-    for round_state in run.outcome.result.rounds:
-        for bid in round_state.bids:
-            if bid.alpha is not None:
-                alphas_by_agent.setdefault(bid.agent, []).append(bid.alpha)
-    ambulance_alpha = alphas_by_agent[AgentKind.AMBULANCE][0]
-    other_alphas = {a for agent, vals in alphas_by_agent.items() if agent is not AgentKind.AMBULANCE for a in vals}
-    assert other_alphas, "expected at least one other agent to have a recorded alpha"
-    assert all(abs(ambulance_alpha - a) > 1e-6 for a in other_alphas)
-
-
 # ------------------------------------------------------------------------------------------
 # Settlement / accounting conservation
 # ------------------------------------------------------------------------------------------
