@@ -175,10 +175,10 @@ regression on any of its checks.
 
 Reported results for the two families, from the research tree:
 
-| Family | Q − BASELINE | 95% CI | Primary | Safety |
-|---|---:|---|---|---|
-| Bed | +82.18 | [61.05, 104.12] | pass | pass |
-| Diagnostic | +1.99 | [1.78, 2.21] | pass | fail |
+| Family | Q − BASELINE | 95% CI |
+|---|---:|---|
+| Bed | +82.18 | [61.05, 104.12] |
+| Diagnostic | +1.99 | [1.78, 2.21] |
 
 Neither artifact in `../artifacts/model/` is the artifact those runs measured, so no
 improvement claim is made from them here.
