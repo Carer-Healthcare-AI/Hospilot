@@ -29,7 +29,7 @@ NOW = datetime(2026, 8, 7, 13, 6, tzinfo=timezone.utc)
 
 #: Section 23 — every positive condition observed true, and the counterfactual ones false.
 SECTION_23 = {
-    "transferred_to_icu": True,
+    "transferred_to_target_unit": True,
     "patient_stabilised": True,
     "boarding_reduced": True,
     "cubicle_released": True,
@@ -51,7 +51,7 @@ SECTION_24 = {
     "emergency_escalation": True,
     "ot_throughput": True,
     "revenue": True,
-    "transferred_to_icu": False,
+    "transferred_to_target_unit": False,
     "patient_stabilised": False,
     "boarding_reduced": False,
     "cubicle_released": False,
@@ -69,7 +69,7 @@ SECTION_24 = {
 
 def test_section_23_terms_are_loaded_with_their_points(config):
     terms = load_terms(config)
-    assert terms["transferred_to_icu"].points == 50
+    assert terms["transferred_to_target_unit"].points == 50
     assert terms["patient_stabilised"].points == 40
     assert terms["no_mortality"].points == 30
     assert terms["patient_deterioration"].points == -60
@@ -181,8 +181,12 @@ def test_due_filters_the_queue(config):
 # ---------------------------------------------------------------------------------------
 
 
-def _step(reward: float, won: bool = True, complete: bool = True, cost: float = 20.0) -> Step:
-    return Step("a", 3, won, bid=100.0, utility=150.0, cost=cost, reward=reward, complete=complete)
+def _step(reward: float, won: bool = True, complete: bool = True, cost: float = 20.0,
+          elapsed_minutes: float = 60.0) -> Step:
+    return Step(
+        "a", 3, won, bid=100.0, utility=150.0, cost=cost, reward=reward, complete=complete,
+        elapsed_minutes=elapsed_minutes,
+    )
 
 
 def test_episode_discounts_across_the_shift(config):
@@ -192,6 +196,25 @@ def test_episode_discounts_across_the_shift(config):
     assert episode.total_reward == 300
     assert episode.discounted_return == pytest.approx(100 + 99 + 98.01)
     assert episode.discounted_return < episode.total_reward
+
+
+def test_longer_elapsed_time_between_auctions_discounts_the_return_more(config):
+    """Block 3.1: the secondary discounted-return calculation must use elapsed CLINICAL TIME
+    between auctions, not a flat one-gamma-per-auction step."""
+    from allocation.reward.episode import step_discount
+
+    gamma = float(config.reward["discount_gamma"])
+    quick = build_episode(
+        config, AgentKind.ER, "s1",
+        [_step(100, elapsed_minutes=5.0), _step(100)],
+    )
+    slow = build_episode(
+        config, AgentKind.ER, "s2",
+        [_step(100, elapsed_minutes=300.0), _step(100)],
+    )
+    assert slow.discounted_return < quick.discounted_return
+    assert quick.discounted_return == pytest.approx(100 + step_discount(gamma, 5.0) * 100)
+    assert slow.discounted_return == pytest.approx(100 + step_discount(gamma, 300.0) * 100)
 
 
 def test_burn_rate_is_realised_not_predicted(config):

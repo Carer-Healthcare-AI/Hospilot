@@ -28,7 +28,7 @@ from datetime import datetime, timedelta
 from typing import Mapping, Protocol, Sequence
 
 from allocation.auction.reserve import meets_reserve, reserve_price
-from allocation.auction.rounds import initial_positions, run_round
+from allocation.auction.rounds import StateHook, initial_positions, run_round
 from allocation.auction.settle import close, determine_winner, settle_auction
 from allocation.auction.state import AuctionResult, Position, UtilitySource
 from allocation.budget.spend import SpendResult, contention as compute_contention
@@ -139,6 +139,7 @@ def run_auction(
     policy_name: str = "heuristic",
     charge_budgets: bool | None = None,
     pathways: "PathwaySource | None" = None,
+    state_hook: "StateHook | None" = None,
 ) -> AuctionOutcome:
     """Run a complete auction to its close.
 
@@ -193,6 +194,7 @@ def run_auction(
             contention=contention,
             policy_name=policy_name,
             pathways=pathways.options(round_index) if pathways else None,
+            state_hook=state_hook,
         )
         rounds.append(state)
 

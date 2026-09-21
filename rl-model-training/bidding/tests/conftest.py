@@ -8,7 +8,7 @@ from allocation.config import Config, load_config
 from allocation.contracts import FeatureSnapshot
 from allocation.ingest import FixtureDataSource, build_snapshot_sync
 from allocation.ingest.fixtures import NOW
-from allocation.profiles import ICU_BED
+from allocation.use_cases.bed.profiles import ICU_BED
 from allocation.profiles.registry import ResourceProfile
 from allocation.utility import UtilityEngine, build_engine
 

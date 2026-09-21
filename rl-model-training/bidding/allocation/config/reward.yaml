@@ -31,11 +31,11 @@ discount_gamma: 0.99
 
 # --- Section 23 · the episode where ER won ----------------------------------------------
 terms:
-  transferred_to_icu:
+  transferred_to_target_unit:
     scenario: won
     points: 50
     source: ipd_admissions
-    description: The winning patient actually reached an ICU bed
+    description: The winning patient actually reached a bed in the auctioned unit
 
   patient_stabilised:
     scenario: won
@@ -76,7 +76,7 @@ terms:
     scenario: won
     points: 15
     source: beds
-    description: A further ICU bed became available inside the window
+    description: A further bed in the auctioned unit became available inside the window
 
   surgery_not_cancelled:
     scenario: won

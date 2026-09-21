@@ -40,6 +40,10 @@ class RoundOptions:
     safe_wait_minutes: float | None
     #: The full derivation behind the release estimate, including the assumption it rests on.
     release: NextRelease | None = None
+    #: Minutes until physical arrival, carried straight from ``Candidate.eta_minutes`` so the
+    #: encoder can read it the same way it already reads ``safe_wait_minutes``/
+    #: ``next_release_probability`` — via a plain attribute, ``None`` when not applicable.
+    eta_minutes: float | None = None
     #: NEWS2 at this snapshot, the baseline a re-entry monitor is armed against. ``None`` when
     #: the patient's vitals cannot be scored — which does not block ``RE_ENTER_LATER``, it
     #: only removes the deterioration condition and leaves the availability one.
@@ -101,7 +105,15 @@ def build_options(
     )
     alternatives = _drop_too_brief(config, alternatives)
 
-    wait = safe_wait_minutes(config, candidate, horizon_hours)
+    # A candidate with no current_unit (e.g. an inbound AMBULANCE patient) cannot be looked
+    # up in the unit-keyed safe-hold table below — there is no unit to key it by. Rather than
+    # leave AWAIT_NEXT_RESOURCE/RE_ENTER_LATER permanently infeasible for such a candidate,
+    # an explicit override stands in for the lookup. Every candidate that already has a
+    # current_unit is completely unaffected: the override only applies in its absence.
+    if candidate.current_unit is None and candidate.safe_wait_minutes_override is not None:
+        wait = min(candidate.safe_wait_minutes_override, horizon_hours * 60.0)
+    else:
+        wait = safe_wait_minutes(config, candidate, horizon_hours)
     release = (
         next_release(config, snapshot.hospital, snapshot.taken_at, wait)
         if wait is not None
@@ -120,6 +132,7 @@ def build_options(
             config, candidate, snapshot.taken_at, baseline,
             resource_type or ResourceType(f"{target_unit}_bed"),
         ),
+        eta_minutes=candidate.eta_minutes,
     )
 
 

@@ -5,7 +5,7 @@
 The best-supplied part of the framework and the most fragile at the same time: eight of the
 nine section 23 terms map to live tables, and the ninth decides the sign of the episode.
 
-    transferred_to_icu     +50   ipd_admissions
+    transferred_to_target_unit  +50   ipd_admissions
     patient_stabilised     +40   vitals
     boarding_reduced       +15   visits
     cubicle_released       +10   beds

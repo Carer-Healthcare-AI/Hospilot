@@ -15,6 +15,18 @@ thing between a typed sentence and a real budget decrement.
 
 from __future__ import annotations
 
+
+# --- composition root -------------------------------------------------------------------
+# Registering the resource families is a composition-root job, never a core-layer one: the
+# auction, budget, utility, trigger, ingest and pathway layers are use-case agnostic and are
+# handed a profile. Importing the package below is what populates `profiles.REGISTRY`; without
+# it the registry is empty and every query resolves to no profile.
+#
+# Diagnostic machines do NOT appear here. That family carries its own modality registry
+# (`use_cases.diagnostic_machine.profiles.MODALITIES`) and its own caps/budget tables, and is
+# entered through its own auction rather than through `profiles.REGISTRY`.
+import allocation.use_cases.bed.profiles  # noqa: F401  — registers the six bed profiles
+
 import argparse
 import json
 import re

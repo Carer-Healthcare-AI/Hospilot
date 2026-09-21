@@ -1,0 +1,194 @@
+# Agent priority budget for an MRI SCANNER — RL-Steps section 4 formula, diagnostic pool.
+#
+#   Shift Budget = Base x Demand x Criticality x Scarcity x Fairness
+#
+# ONE POOL PER MODALITY. Utility points are only comparable within one caps table, and a
+# shared pool would let the modality with the largest utilities drain it.
+#
+# ICU IS A BIDDER HERE. That is the difference from every bed pool, and it is an UNSETTLED
+# GOVERNANCE QUESTION (DIAGNOSTIC_CAPACITY_PLAN D-A, AGENT_BUDGET open decision 3). The
+# criticality values below give ICU a figure so the mechanism can run; nothing has approved it.
+#
+# WARNING — `common_points` is inherited from the bed pool and is NOT calibrated to this
+# family's auction volume. A scanner runs far more auctions per shift than a bed is freed, so
+# the same allowance burns differently. AGENT_BUDGET section 8: below a 0.40 burn rate the
+# budget is inert and "bidding maximum is free". Set from observed burn once auctions exist.
+#
+# COPIED FROM budget_ct.yaml except the two blocks named below, which are the only places a
+# modality difference is defensible today:
+#
+#   scarcity/contention onset+span — when capacity pressure starts to bite. A scarcer
+#                                    modality reaches it sooner.
+#   criticality values             — the share of each department's requests for THIS
+#                                    modality that are time-critical.
+#
+# Both are still assumptions. Everything else is CT's, unchanged.
+
+formula_version: rl_steps_s4_common_base
+resource_type: mri
+status: assumed_pending_burn_rate_data
+
+base:
+  mode: common
+  common_points: 700
+  hours: 8
+  status: assumed_pending_burn_rate_data
+
+base_derivation:
+  expected_alpha: 0.65
+  reference_contention: 1.1
+  expected_utility:
+    er: 80.0
+    icu: 80.0
+    ot: 60.0
+
+# GOVERNANCE — nothing in the data determines these. UNSIGNED.
+targets:
+  er:  {n_win: 4, n_req: 8}
+  icu: {n_win: 3, n_req: 6}
+  ot:  {n_win: 2, n_req: 4}
+targets_status: assumed_pending_governance
+
+factors:
+  demand:
+    clamp: [0.8, 1.3]
+    median_window_days: 30
+    fallback: 1.0
+  criticality:
+    # Share of a department's requests for this modality needing an answer within 30 minutes.
+    # Hard-coded until a diagnostic request log exists — the same standing-in the bed pool
+    # does, with the same warning: this must come from data, not from a belief about which
+    # department matters more.
+    source: rule_table_pending_data
+    status: assumed_pending_governance
+    default: 1.00
+    values:
+      er: 1.15
+      icu: 1.15
+      ot: 1.05
+    thresholds:
+      admission_within_minutes: 30
+      bands:
+        - {min_share: 0.60, factor: 1.15}
+        - {min_share: 0.35, factor: 1.05}
+        - {min_share: 0.00, factor: 1.00}
+  fairness:
+    version: v1
+    value: 1.0
+    clamp: [0.95, 1.05]
+    v2_weight: 0.4
+    v2_window_shifts: 10
+  scarcity:
+    # Computed from this MODALITY's committed capacity over the horizon, never from bed
+    # occupancy. `scope: per_resource_type` is what keeps the two apart.
+    onset_occupancy: 0.75
+    span: 0.25
+    slope: 0.3
+    clamp: [1.0, 1.3]
+    scope: per_resource_type
+
+spend:
+  commitment_rate: 0.25
+  outcome_factor:
+    win: 1.0
+    lose: 0.1
+  contention:
+    # Identical structure to the bed pool. `occupancy` is read as this modality's committed
+    # capacity fraction and `discharge_clear_at` as the number of free slots at which
+    # scarcity disappears — the arithmetic is resource-neutral, the inputs are not.
+    floor: 0.80
+    per_extra_bidder: 0.10
+    occupancy_weight: 0.15
+    discharge_weight: 0.05
+    occupancy_onset: 0.75
+    occupancy_span: 0.25
+    discharge_clear_at: 3.0
+    clamp: [0.8, 1.3]
+  affordability: cost_le_remaining
+
+renewal:
+  hours_per_shift: 8
+  rho: 0.5
+  cap_at_total: true
+
+burn_rate_bands:
+  inert_below: 0.40
+  working: [0.70, 1.10]
+  starved_above: 1.50
+
+# --- Bidder declaration --------------------------------------------------------------------
+# WHO MAY BID, stated in configuration rather than only in code, because for this family it is
+# a live governance question rather than a settled fact.
+bidders:
+  er:
+    eligible: true
+    status: inherited_from_bed_use_case
+  ot:
+    eligible: true
+    status: inherited_from_bed_use_case
+  icu:
+    eligible: true
+    # ICU BIDS HERE, AND THIS IS THE DECISION THE BED USE CASE NEVER HAD TO MAKE.
+    #
+    # In the bed family ICU is DEMAND, not a bidder: `AgentKind.ICU` is "declared but not yet
+    # eligible in any profile", and whether ICU holds a budget is AGENT_BUDGET open decision 3
+    # and BUILD_SPEC F-12, both unresolved. The bed use case could dodge it. This one cannot —
+    # a ventilated ICU patient needing a head CT is competing for the scanner, and there is no
+    # reading of the mechanism in which they are not.
+    #
+    # So ICU is an INTENTIONAL bidder here. What is NOT decided, and is marked unfitted below:
+    status: intentional_bidder_parameters_unfitted
+    unfitted:
+      - "criticality 1.15 is COPIED FROM ER. Nobody has measured what share of ICU's requests
+         for this modality need an answer inside 30 minutes, and there is a real argument it
+         should be higher than ER's (an ICU patient is already the sickest in the building)
+         and a real argument it should be lower (their monitoring means delay is safer).
+         Neither argument has data."
+      - "the target win/request ratio is invented. ER 4/8, ICU 3/6 and OT 2/4 all reduce to
+         one-half, which is a placeholder shaped like a decision, not a decision."
+      - "ICU draws on the SAME per-modality pool as ER and OT at the same Base. Whether an
+         intensive-care request should be funded at parity with an emergency one is exactly
+         the governance question this file cannot answer."
+    open_decision: "AGENT_BUDGET decision 3 / BUILD_SPEC F-12"
+
+# --- Simulation-only budget calibration ----------------------------------------------------
+# NOT FOR LIVE USE. Selected explicitly by `open_diagnostic_budgets(..., regime=...)` and
+# never by default.
+#
+# THE PROBLEM THIS SOLVES. At the shipped Base of 700 a scenario burns ~2% of its allowance.
+# AGENT_BUDGET section 8: below a 0.40 burn rate the budget is INERT — "bidding maximum is
+# free, and the RL will learn to do exactly that". A simulator that only ever runs inert
+# budgets cannot show the mechanism working, cannot produce training data in which the
+# constraint binds, and will hand a learned policy a world where spending is costless.
+#
+# So these regimes scale Base so that a scenario-length run lands in each band. They are
+# CALIBRATION FOR SIMULATION, not a claim about a real department's allowance — the live
+# number still has to come from observed burn, and `common_points` above still carries that
+# warning.
+simulation:
+  status: simulation_only_not_a_live_allowance
+  #
+  # CALIBRATED EMPIRICALLY against the six scenarios in `scenarios.py`, not chosen by feel.
+  # The measured burn spread across all agents and scenarios is recorded beside each regime;
+  # `tests/test_diagnostic_budgets.py` re-measures it, so a scenario change that quietly makes
+  # a regime inert fails a test rather than passing silently.
+  regimes:
+    # The constraint exists and mostly binds without breaking anything. Median burn sits in
+    # AGENT_BUDGET's working band and every request that capacity allows is still served.
+    normal:
+      base_points: 10
+      measured_burn: {median: 0.77, max: 1.00}
+      expect: "budget binds but does not decide the allocation"
+    # Agents run close to their limit and must choose which requests to contest.
+    constrained:
+      base_points: 7
+      measured_burn: {median: 0.92, max: 1.00}
+      expect: "affordability starts shaping which auctions are entered"
+    # Budget runs out mid-run, so exits are forced by affordability rather than by clinical
+    # reasoning. The regime that proves `ExitReason.UNAFFORDABLE` is reachable at all — and
+    # the one that shows what the mechanism does when it has nothing left: on the CT scenarios
+    # NOTHING is answered, because no agent can afford a competitive bid.
+    exhausted:
+      base_points: 3
+      measured_burn: {median: 0.81, max: 0.99}
+      expect: "requests go unserved for want of budget, not for want of capacity"

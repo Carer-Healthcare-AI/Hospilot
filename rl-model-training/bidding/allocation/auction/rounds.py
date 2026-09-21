@@ -22,7 +22,7 @@ disappears would hand a scarce bed over at the opening bid.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
 from allocation.auction.guards import apply_guards
 from allocation.auction.state import ExitReason, Position, standing_bids
@@ -41,6 +41,14 @@ from allocation.contracts import (
     RoundState,
     UtilityBreakdown,
 )
+
+#: What the engine needs from the RL layer to record a decision-time state, and nothing
+#: more. A callable rather than an encoder object so the auction engine keeps no dependency
+#: on ``allocation.rl`` — the engine records whatever it is handed, or ``None``.
+StateHook = Callable[
+    [Candidate, UtilityBreakdown, float, RoundState, BudgetState, FeatureSnapshot, object],
+    tuple[float, ...],
+]
 
 
 def decision_order(positions: Mapping[AgentKind, Position]) -> tuple[AgentKind, ...]:
@@ -66,6 +74,7 @@ def run_round(
     contention: float,
     policy_name: str,
     pathways: Mapping[AgentKind, PathwayOptions] | None = None,
+    state_hook: "StateHook | None" = None,
 ) -> tuple[RoundState, dict[AgentKind, Position]]:
     """Run one round, mutating a copy of ``positions``.
 
@@ -107,9 +116,16 @@ def run_round(
             at_round_start if sealed else working, auction_id, round_index, opened_at
         )
 
+        options = pathways.get(agent) if pathways else None
+        # Encoded HERE, against `view` and the pre-charge budget — the same inputs `_decide`
+        # is about to receive. Any later reconstruction would describe a different moment.
+        decision_state = (
+            state_hook(candidate, breakdown, ceiling, view, budgets[agent], snapshot, options)
+            if state_hook is not None
+            else None
+        )
         decision = _decide(
-            policy, candidate, breakdown, ceiling, view, budgets[agent], snapshot,
-            pathways.get(agent) if pathways else None,
+            policy, candidate, breakdown, ceiling, view, budgets[agent], snapshot, options,
         )
         action, alpha = decision.action, decision.alpha
 
@@ -120,7 +136,7 @@ def run_round(
             recorded.append(
                 _bid_row(auction_id, round_index, position, Action.WITHDRAW,
                          position.current_bid, breakdown, ceiling, alpha, contention,
-                         policy_name, decision)
+                         policy_name, decision, decision_state)
             )
             continue
 
@@ -128,7 +144,32 @@ def run_round(
             recorded.append(
                 _bid_row(auction_id, round_index, position, Action.HOLD,
                          position.current_bid, breakdown, ceiling, alpha, contention,
-                         policy_name, decision)
+                         policy_name, decision, decision_state)
+            )
+            continue
+
+        # A ceiling at or below zero admits NO legal bid, not even a zero one. `apply_guards`
+        # clamps to the ceiling and then floors at 0.0, and when the ceiling is negative those
+        # two steps disagree: the floor lifts the amount back above the limit the clamp had
+        # just enforced, and the record fails `bid exceeds its own ceiling` at audit time.
+        #
+        # The clamp cannot fix this, because there is no valid amount to clamp to — a bid of
+        # zero is already above a ceiling of -4. The only rational action is to leave, which
+        # is the heuristic's rule 1 ("standing bid above ceiling -> withdraw") generalised to
+        # an empty position: a candidate whose utility has gone negative is not worth bidding
+        # on at any price.
+        #
+        # Reached only under exploration. HeuristicPolicy self-enforces rule 1, so it never
+        # arrives here; an epsilon-greedy learner that picks a compete action in this state
+        # does, and every long online training run crashed on exactly this.
+        if ceiling <= 0.0:
+            working[agent] = position.withdrawn(
+                round_index, _exit_reason(position, ceiling, view, decision)
+            )
+            recorded.append(
+                _bid_row(auction_id, round_index, position, Action.WITHDRAW,
+                         position.current_bid, breakdown, ceiling, alpha, contention,
+                         policy_name, decision, decision_state)
             )
             continue
 
@@ -149,7 +190,8 @@ def run_round(
         working[agent] = position.with_bid(amount, breakdown.total, ceiling)
         recorded.append(
             _bid_row(auction_id, round_index, working[agent], Action.INCREASE_BID,
-                     amount, breakdown, ceiling, alpha, contention, policy_name, decision)
+                     amount, breakdown, ceiling, alpha, contention, policy_name, decision,
+                     decision_state)
         )
 
     return (
@@ -232,10 +274,12 @@ def _bid_row(
     contention: float,
     policy_name: str,
     decision: Decision | None = None,
+    decision_state: tuple[float, ...] | None = None,
 ) -> Bid:
     del policy_name  # carried on the audit row, not on the in-memory bid
     return Bid(
         auction_id=auction_id,
+        decision_state=decision_state,
         round_index=round_index,
         agent=position.agent,
         candidate_id=position.candidate_id,

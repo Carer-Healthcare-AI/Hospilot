@@ -128,6 +128,11 @@ class Settings:
     #: the same reason — ``rl/pilot.py`` wants a track record before influence, and a flag that
     #: quietly promoted the policy would make the safe path the one you have to remember.
     policy_live: bool = False
+    #: The diagnostic family's own weights and act/shadow flag. A separate pair rather than a
+    #: shared one because the two families load different classes against different encoders:
+    #: one path could not serve both without branching per family anyway.
+    diagnostic_policy_path: Path | None = None
+    diagnostic_policy_live: bool = False
 
 
 _SCENARIO_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -343,6 +348,59 @@ def _with_uplift(config: Config, enabled: bool) -> Config:
 #   sidesteps a mutable ``DivergenceMonitor`` shared across FastAPI's threadpool — the bug
 #   PRODUCTION_CHECKLIST flags against ``RunStore`` — is a second reason, not the first.
 # ---------------------------------------------------------------------------------------
+
+
+def _artifact_kind(path) -> str:
+    """The ``kind`` field of a weights file, or ``""`` if it has none.
+
+    Read before any loader is chosen, so a bed-style artifact and a plain one can share one
+    setting. Cheap: a weights file is small and read once at startup.
+    """
+    import json as _json
+
+    try:
+        return str(_json.loads(Path(path).read_text(encoding="utf-8")).get("kind", ""))
+    except (OSError, ValueError):
+        return ""
+
+
+def load_diagnostic_policy(settings: Settings, config: Config):
+    """Read the diagnostic family's weights, or ``None`` if none were given.
+
+    Same shape and the same safety gate as :func:`load_policy`, kept separate because the two
+    families load different classes against different encoders.
+    """
+    if settings.diagnostic_policy_path is None:
+        if settings.diagnostic_policy_live:
+            raise ApiError(
+                "--diagnostic-live-policy requires --diagnostic-policy", status=500
+            )
+        return None
+
+    if settings.diagnostic_policy_live and not safety_is_enforced(config):
+        raise ApiError(
+            "refusing --diagnostic-live-policy: auction.yaml declares safety_status "
+            f"{safety_posture(config)!r}. A learned policy may not decide allocations while "
+            "no hard constraint is enforced. Start without it to shadow instead.",
+            status=500,
+        )
+
+    try:
+        from allocation.use_cases.diagnostic_machine import research_serving
+
+        if _artifact_kind(settings.diagnostic_policy_path) == research_serving.KIND:
+            # A bed-style artifact carries its own extended encoder version; the plain
+            # encoder check does not apply to it and would reject it wrongly.
+            return research_serving.load_and_serve(settings.diagnostic_policy_path, config)
+
+        from allocation.use_cases.diagnostic_machine.qlearn import DiagnosticQPolicy
+
+        return DiagnosticQPolicy.load(settings.diagnostic_policy_path)
+    except (OSError, KeyError, ValueError) as exc:
+        raise ApiError(
+            f"cannot load diagnostic policy from {settings.diagnostic_policy_path}: {exc}",
+            status=500,
+        ) from exc
 
 
 def load_policy(settings: Settings, config: Config):

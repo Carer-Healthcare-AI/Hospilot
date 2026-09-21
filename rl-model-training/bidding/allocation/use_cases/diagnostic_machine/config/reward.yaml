@@ -1,0 +1,80 @@
+# Diagnostic reward weights — the objective function.
+#
+# A cap that is wrong distorts a bid. A REWARD TERM that is wrong teaches the policy to want
+# the wrong thing, and no amount of training corrects it. This file is therefore the most
+# consequential unfitted artifact in the diagnostic package, and it is separate from the bed
+# `config/reward.yaml` in every respect: different terms, different scale, never co-loaded.
+#
+# TWO DEFECTS OF THE BED REWARD ARE FIXED HERE BY CONSTRUCTION, both verified rather than
+# suspected:
+#
+#   1. THE BED REWARD HAS NO COST TERM. A win scored on outcome alone, so paying 118 points
+#      for a bed and paying 60 for the same bed scored identically. The budget mechanism — the
+#      entire price signal — was invisible to the learner. `budget_cost` below is that term.
+#
+#   2. THE BED REWARD CANNOT SEE A NO-AWARD. Four of its terms are hardcoded True on a win, so
+#      min(reward | won) is exactly 80.0 and the objective's clearest instruction is "win, at
+#      any price"; an auction that awarded nothing produced no signal at all. Here every fate
+#      scores, and `abandoned` and `expired` are negative.
+#
+# THE SHAPE THIS ENCODES, stated so it can be disagreed with:
+#   answering the question         >>  answering it cheaply
+#   answering it cheaply           >   answering it expensively
+#   a real handover to another modality  >  not answering it
+#   not answering it               >   scanning and getting a useless answer
+#
+# NONE OF THESE NUMBERS IS FITTED. They are a defensible ordering with plausible magnitudes,
+# and they are what the first training run will expose as wrong.
+
+version: diagnostic_reward_v1
+status: unfitted_assumed_pending_clinical_governance
+
+weights:
+  # --- positive ---------------------------------------------------------------------------
+  # Multiplied by the request's expected management impact, which is already in [0, 1]. So a
+  # question that would certainly change management scores the full 60; one that probably
+  # would not scores proportionally less. This is the term that stops the policy learning to
+  # maximise scan COUNT.
+  answered: 60.0
+
+  # Answering early is worth something beyond answering at all — an answer with the window
+  # half spent leaves no room for the next decision. Deliberately much smaller than
+  # `answered`: rushing a low-value scan must never beat performing a high-value one.
+  timeliness: 10.0
+
+  # A handover to a modality that genuinely answers the question. Well below `answered`,
+  # because it is a substitute rather than the thing asked for, and well above zero, because
+  # the mechanism must be able to PREFER it to letting the request expire. If this were zero
+  # the policy would learn that diverting and abandoning are equivalent, which is the
+  # diagnostic form of the bug that made every bed baseline understate itself.
+  diverted: 35.0
+
+  # --- negative ---------------------------------------------------------------------------
+  # Fraction of the safe diagnostic delay consumed before the answer landed.
+  delay: 15.0
+
+  # Points spent, per point of winning bid. SMALL AND NON-ZERO, and both halves matter: large
+  # enough that a policy prefers the cheaper of two equal wins, small enough that it never
+  # prefers losing to paying. At 0.15 a 60-point win costs 9 against a clinical value of up to
+  # 60, so cost can break a tie and cannot decide a case.
+  budget_cost: 0.15
+
+  # Moving a patient to the machine, scaled to one hour of transport. Zero in practice for
+  # portable modalities, which is the point of scoring it per request rather than per policy.
+  transport: 8.0
+
+  # The safe window elapsed with the question unanswered. Scaled by what the answer was worth.
+  expired: 40.0
+
+  # Left the auction with NOTHING arranged.
+  #
+  # A SURCHARGE ON TOP OF THE EXPIRY TERMS, not an independent constant. An abandoned request
+  # loses its answer exactly as an expired one does, and additionally someone decided to stop
+  # trying — so it is scored as the expiry, plus this.
+  #
+  # Structural rather than numeric on purpose. As two free-standing constants the intended
+  # ordering held only by coincidence, and it did not: `expired` 40 plus the delay penalty
+  # came to -47 while `abandoned` 50 came to -40, so the objective quietly preferred giving up
+  # to running out of time. Deriving one from the other makes the ordering impossible to break
+  # by retuning a weight.
+  abandonment_surcharge: 15.0

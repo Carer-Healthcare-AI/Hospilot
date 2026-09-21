@@ -271,6 +271,64 @@ PATIENT_DATA: Mapping[str, PatientData] = {
 CANDIDATES = (ER_CANDIDATE, OT_CANDIDATE, WARD_CANDIDATE)
 
 
+# ---------------------------------------------------------------------------------------
+# AMBULANCE — agent-extension (2026-08-27), NOT from Appendix C, invented like the five
+# other units in _OTHER_UNIT_STATES above and marked the same way.
+#
+# An inbound prehospital patient: not yet arrived (arrived_at=None, current_unit=None — see
+# Candidate.eta_minutes/safe_wait_minutes_override's docstrings for why those two fields
+# exist instead of overloading arrived_at or inventing a fake current_unit), field-reported
+# EMS vitals standing in for a hospital monitor, and a diversion alternative expressed
+# through the EXISTING best_alternative_unit mechanism (Resus) rather than a new one — no
+# new pathway machinery was needed for "could go elsewhere instead".
+# ---------------------------------------------------------------------------------------
+AMBULANCE_CANDIDATE = Candidate(
+    candidate_id="AMBULANCE-Patient-D",
+    patient_token="tok-amb-d",
+    agent=AgentKind.AMBULANCE,
+    visit_id="visit-amb-d",
+    arrived_at=None,
+    current_unit=None,
+    condition_category="polytrauma",
+    severity_band="unstable_multisystem",
+    needs=frozenset(
+        {CareNeed.VENTILATION, CareNeed.ONE_TO_ONE_NURSING, CareNeed.CONTINUOUS_MONITORING}
+    ),
+    eta_minutes=12.0,
+    safe_wait_minutes_override=30.0,
+)
+
+AMBULANCE_VITALS = (
+    # Field-reported (EMS), not a hospital monitor — same VitalsReading shape either way.
+    VitalsReading(_at(12, 40), temperature=35.8, pulse=128, bp_systolic=82, spo2=90,
+                  respiratory_rate=28, gcs=13, is_critical=True, on_oxygen=True),
+    VitalsReading(_at(12, 55), temperature=35.6, pulse=134, bp_systolic=78, spo2=89,
+                  respiratory_rate=30, gcs=12, is_critical=True, on_oxygen=True),
+)
+
+PATIENT_DATA = {
+    **PATIENT_DATA,
+    AMBULANCE_CANDIDATE.candidate_id: PatientData(
+        candidate=AMBULANCE_CANDIDATE,
+        vitals=AMBULANCE_VITALS,
+        labs=(),
+        orders=(),
+        pending_nursing_tasks=None,   # not meaningful pre-arrival
+        ward_nurses=None,
+        expected_los_days=4.0,
+        icu_day_rate=18000.0,         # same order of magnitude as ER's medical-ICU rate
+        # PACU's capability vector (rules/units.yaml) covers all three of AMBULANCE's needs
+        # below, so this is a genuinely usable alternative once read (read_alternatives=True)
+        # rather than one blocked by a capability gap — diversion via the existing mechanism.
+        best_alternative_unit="pacu",
+    ),
+}
+
+#: Every existing scenario keeps using CANDIDATES unchanged (three agents, ER/OT/WARD).
+#: This is the ONLY place AMBULANCE joins the roster, additively.
+CANDIDATES_WITH_AMBULANCE = CANDIDATES + (AMBULANCE_CANDIDATE,)
+
+
 class FixtureDataSource:
     """A :class:`~allocation.contracts.DataSource` serving Appendix C.
 

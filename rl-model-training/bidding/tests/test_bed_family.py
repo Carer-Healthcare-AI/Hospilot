@@ -12,7 +12,7 @@ from dataclasses import replace
 
 import pytest
 
-from allocation import profiles  # noqa: F401  — importing registers the family
+from allocation.use_cases.bed import profiles  # noqa: F401  — importing registers the family
 from allocation.config import load_config
 from allocation.contracts import AgentKind, ComponentName, ResourceType
 from allocation.ingest import fixtures as fx

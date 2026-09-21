@@ -95,6 +95,22 @@ def build_parser() -> argparse.ArgumentParser:
              "'policy: rl' is SHADOWED: the heuristic allocates and the learned choices are "
              "recorded in the response",
     )
+    parser.add_argument(
+        "--diagnostic-policy",
+        default=_env("POLICY_DIAGNOSTIC"),
+        metavar="PATH",
+        help="trained diagnostic weights ($ALLOCATION_POLICY_DIAGNOSTIC). Separate from "
+             "--policy because the two families load different classes against different "
+             "encoders; the loader is chosen by the artifact's 'kind', not its filename",
+    )
+    parser.add_argument(
+        "--diagnostic-live-policy",
+        action="store_true",
+        default=_env("LIVE_POLICY_DIAGNOSTIC") is not None,
+        help="let --diagnostic-policy actually decide allocations "
+             "($ALLOCATION_LIVE_POLICY_DIAGNOSTIC). Without it the diagnostic policy is "
+             "SHADOWED, exactly as --live-policy governs the bed one",
+    )
     parser.add_argument("--reload", action="store_true", help="restart on code changes")
     return parser
 
@@ -161,6 +177,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             api_key=api_key,
             policy_path=Path(args.policy) if args.policy else None,
             policy_live=args.live_policy,
+            diagnostic_policy_path=(
+                Path(args.diagnostic_policy) if args.diagnostic_policy else None
+            ),
+            diagnostic_policy_live=args.diagnostic_live_policy,
         )
     except service.ApiError as exc:
         print(f"cannot start: {exc.message}", file=sys.stderr)

@@ -3,7 +3,7 @@
 Entry point::
 
     from allocation.config import load_config
-    from allocation.profiles import ICU_BED
+    from allocation.use_cases.bed.profiles import ICU_BED
     from allocation.utility import build_engine
 
     engine = build_engine(load_config(), ICU_BED)

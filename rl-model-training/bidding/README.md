@@ -1,29 +1,41 @@
-# Bed Allocation Q-Learning Model
+# Bed and Diagnostic Allocation Q-Learning Model
 
-This folder contains a Q-learning model for the HOSPILOT bed-allocation auction. The model
-observes the current patient, bed, auction, and hospital state, then chooses an allocation
-strategy and bid level.
+This folder contains the HOSPILOT allocation auction and the Q-learning policies that bid in
+it. Two resource families are served. A bed auction allocates one bed to one department. A
+diagnostic auction allocates one capacity interval on one machine, against a deadline.
 
-The policy implementation is agent-generic. It can be trained and used for any registered
-bidder: `er`, `ot`, `ward`, or `icu`. Select the bidder with the training command's `--agent`
-option.
+| Family | Resource | Registered resources |
+|---|---|---|
+| `bed` | One bed | `icu`, `hdu`, `pacu`, `resus`, `ed`, `ward` |
+| `diagnostic_machine` | One capacity interval on one machine | `ct`, `mri`, `x_ray`, `ultrasound` |
 
-The model estimates one value for every action:
+The model observes the current patient, resource, auction, and hospital state, then chooses an
+allocation strategy and bid level. It estimates one value for every action:
 
 ```text
 Q(state, action) = action_weights . state + action_bias
 ```
 
 It also learns an aggression value, `alpha`, between 0 and 1. When the model decides to
-compete for a bed, `alpha` controls how much of the remaining bid range to use.
+compete, `alpha` controls how much of the remaining bid range to use.
 
 ```text
 alpha(state) = sigmoid(alpha_weights . state + alpha_bias)
 ```
 
+The bed policy is agent-generic and can be used for any registered bidder: `er`, `ot`, `ward`,
+`icu`, or `ambulance`. The diagnostic policy bids for `er`, `ot`, `icu`, and on CT also
+`appointments`, the scheduled-outpatient bidder.
+
+> **SYNTHETIC HOSPITAL — SIMULATION ONLY — NOT CLINICALLY VALIDATED.**
+> Caps, budgets and reward weights are chosen, not fitted. `mode: live` is refused over HTTP.
+
 ## Actions
 
-| Action | What it does |
+Each family has its own six-action space. They differ where the resource differs: a bed is
+held, a machine is booked for an interval.
+
+| Bed action | What it does |
 |---|---|
 | `win_now` | Bid to obtain the bed now. |
 | `continue` | Remain in the auction and continue bidding. |
@@ -32,27 +44,52 @@ alpha(state) = sigmoid(alpha_weights . state + alpha_bias)
 | `re_enter_later` | Leave the current auction and re-enter when the trigger is met. |
 | `withdraw_unplanned` | Leave without a planned pathway. |
 
+| Diagnostic action | What it does |
+|---|---|
+| `win_now` | Bid to obtain the next capacity interval now. |
+| `continue` | Remain in the auction and continue bidding. |
+| `use_alternative` | Divert to a different modality that answers the same question. |
+| `await_next_capacity` | Wait for the next interval on this machine. |
+| `re_enter_later` | Leave the current auction and re-enter when the trigger is met. |
+| `withdraw_unplanned` | Leave without a planned pathway. |
+
 The model scores the actions that are available for the current patient and selects the action
-with the highest Q-value.
+with the highest Q-value. Eligibility is a hard filter, applied before scoring: a diagnostic
+request whose modality, capability or deadline the machines cannot meet is removed from the
+auction rather than penalised inside it.
 
 ## State features
 
-The state encoder converts each decision into 22 values in the range `[0, 1]`.
+Each encoder converts one decision into 25 values in the range `[0, 1]`. The two feature sets
+are separate and are not interchangeable.
 
-| Group | Features |
+| Bed group | Features |
 |---|---|
-| Bid position | Utility, ceiling, headroom, standing bid, leader bid, distance from leader, leading status |
-| Competition | Number of bidders, contention, round number, rounds remaining |
+| Bid position | Utility, ceiling, headroom, standing bid, leader bid, distance from leader, leading status, heuristic alpha logit |
+| Competition | Number of bidders, contention, round index, rounds remaining |
 | Budget and time | Remaining budget, burn rate, elapsed shift time |
 | Hospital state | Occupancy and boarding |
-| Pathways | Safe-wait window, alternative availability, release probability, and known-value flags |
+| Pathways | Safe-wait window, alternative hold, release probability, ETA, and known-value flags |
+
+| Diagnostic group | Features |
+|---|---|
+| Clinical | Diagnostic value, urgency, delay pressure, operational impact |
+| Resource | Machine scarcity, resource stress, transport burden |
+| Bid position | Scaled utility and ceiling, own and leader bid over ceiling, leading status, distance behind, headroom fraction |
+| Competition | Rounds remaining, scaled bidder count, scaled contention |
+| Budget and time | Remaining budget fraction, burn rate |
+| Pathways | Safe-wait fraction, next-capacity slack, alternative availability and yield ratio, scheduled-demand flag |
+
+Each encoder carries a content-hash version, and a policy records the version it was fitted
+under. Loading a policy whose version does not match the running build is refused rather than
+reinterpreted, because the same position in the vector would mean a different quantity.
 
 ## How a decision is made
 
 ```text
 patient + auction + budget + hospital state
                     |
-             22-feature state
+             25-feature state
                     |
           available-action mask
                     |
@@ -71,19 +108,20 @@ For a bidding action, the proposed increment is:
 increment = alpha * (bid ceiling - current bid)
 ```
 
-The auction engine then applies the available budget and bid ceiling before submitting the bid.
+The auction engine then applies the available budget and bid ceiling before submitting the
+bid. Every round records one row per agent, including losers and withdrawals.
 
 ## How the model is trained
 
-Training uses transitions recorded from seeded bed-allocation simulations. Each transition
+Training uses transitions recorded from seeded allocation simulations. Each transition
 contains:
 
 ```text
 state, action, reward, next state, available next actions, terminal flag
 ```
 
-One episode represents one bidder during one shift. Rewards from the auctions in that shift are
-combined into the episode return.
+One episode represents one bidder during one shift. Rewards from the auctions in that shift
+are combined into the episode return.
 
 The Q-learning target is:
 
@@ -105,7 +143,11 @@ During training, the learner:
 
 ## Train a model
 
-From the `RL/` directory, install the project:
+**Training is not shipped in this package.** This folder serves policies; it does not fit
+them. The collection, training, baseline and evaluation harnesses live in the research tree,
+and are deliberately excluded here along with `scripts/`.
+
+To run the engine itself, install the project from the `bidding/` directory:
 
 ```powershell
 python -m venv .venv
@@ -113,25 +155,8 @@ python -m venv .venv
 python -m pip install -e ".[api,dev]"
 ```
 
-Choose one of the registered bidders: `er`, `ot`, `ward`, or `icu`. This example trains `er`:
-
-```powershell
-python scripts\build_dataset.py `
-  --seeds 40 `
-  --shifts 12 `
-  --epsilon 0.30 `
-  --explore-agent er `
-  --out artifacts\transitions.er.jsonl
-
-python scripts\train_q.py `
-  --data artifacts\transitions.er.jsonl `
-  --agent er `
-  --epochs 400 `
-  --lr 0.02
-```
-
-To train another bidder, use the same bidder name for `--explore-agent` and `--agent`, then give
-the dataset and model their own output names.
+A newly fitted artifact must record the encoder version of the build that will serve it. An
+artifact fitted against a different encoder is refused at load time.
 
 ## Evaluation and AER
 
@@ -142,64 +167,107 @@ episode return = sum(gamma^t * reward_t)
 AER            = mean(episode returns)
 ```
 
-The baseline and committed artifact are evaluated on the same simulated arrivals and shift
-conditions. The recorded comparison used seeds `101` through `200` and produced 689 paired ER
-shift episodes.
+The preregistered comparison is against a fixed non-RL BASELINE — a ridge fit to realised
+return-to-go — and not against the heuristic, which is excluded from the run by construction.
+A run passes only if it clears both gates: the lower bound of the seed-clustered 95 per cent
+confidence interval for `(Q - BASELINE)` is above zero, **and** the safety gate shows no
+regression on any of its checks.
 
-| Model | AER | Relative change |
-|---|---:|---:|
-| Baseline | 713.93 | - |
-| Committed artifact | 782.25 | +9.6% |
+Reported results for the two families, from the research tree:
 
-Run the same paired comparison for a trained model:
+| Family | Q − BASELINE | 95% CI |
+|---|---:|---|
+| Bed | +82.18 | [61.05, 104.12] |
+| Diagnostic | +1.99 | [1.78, 2.21] |
 
-```powershell
-python scripts\resolve_comparison.py 100 `
-  --weights artifacts\er_policy.D_672ev_pop48.json `
-  --seed-start 101
-```
+Neither artifact in `../artifacts/model/` is the artifact those runs measured, so no
+improvement claim is made from them here.
 
 ## Use the trained model
 
-Run one auction and display the Q-learning decisions alongside the baseline:
+Both families run the deterministic heuristic by default: no artifact is loaded unless the
+process is started with one. That is what the CLI and the HTTP routes below serve.
+
+Run one bed auction:
 
 ```powershell
-python -m allocation --policy artifacts\er_q_policy.json
+python -m allocation "ER, OT, and ICU/Ward demand compete for one limited ICU bed"
 ```
 
-Use the Q-learning model to make the auction decisions:
+Run one diagnostic allocation:
 
 ```powershell
-python -m allocation `
-  --policy artifacts\er_q_policy.json `
-  --live-policy
+python -m allocation.use_cases.diagnostic_machine scenarios
+python -m allocation.use_cases.diagnostic_machine run three_way_contention
+python -m allocation.use_cases.diagnostic_machine governance
 ```
 
-Start the HTTP API with the model loaded:
+Start the HTTP API:
+
+```powershell
+python -m allocation.api
+```
+
+| Route | Purpose |
+|---|---|
+| `GET /health` | Liveness and the versions this process is running. |
+| `GET /use-cases` | Registered bed profiles, and a query that resolves to each. |
+| `GET /scenarios` | Bed scenario names. |
+| `POST /auction` | Run one bed auction and return the full bid ladder. |
+| `POST /session` | Run many bed auctions against one ledger; shows burn rate. |
+| `GET /diagnostic/modalities` | The four modalities and their caps and budget tables. |
+| `GET /diagnostic/scenarios` | Deterministic diagnostic fixtures. |
+| `POST /diagnostic/auction` | Run one diagnostic auction and return the full bid ladder. |
+
+Request one diagnostic auction from a fixture:
+
+```powershell
+curl.exe -s -X POST http://127.0.0.1:8000/diagnostic/auction `
+  -H "content-type: application/json" `
+  -d "{\"scenario\":\"three_way_contention\"}"
+```
+
+`POST /diagnostic/auction` names the world exactly one way: `scenario`, `query`, or
+`machines` with `requests`. The last carries patient data and is refused unless the process
+was started with `ALLOCATION_API_KEY` set, the same rule `candidates` follows on
+`POST /auction`. No clinical value is defaulted; a missing one is refused and named.
+
+To serve a trained policy instead, start the process with the artifact:
 
 ```powershell
 python -m allocation.api `
-  --policy artifacts\er_q_policy.json `
-  --live-policy
+  --policy ../artifacts/model/bed_q_policy.v1.json `
+  --diagnostic-policy ../artifacts/model/diagnostic_q_policy.v1.json
 ```
 
-Request an auction using the Q-learning policy:
+Both are loaded once at startup, so a mismatched artifact stops the process rather than
+failing every request that asks for it. Each family loads its own: the two carry different
+encoders and different layouts, and the diagnostic artifact is a bed-style one, routed to its
+own loader by the `kind` field rather than by filename.
 
-```powershell
-curl.exe -s -X POST http://127.0.0.1:8000/auction `
-  -H "content-type: application/json" `
-  -d '{"policy":"rl"}'
-```
+Loaded this way a policy **shadows** by default — the deterministic bidder still allocates and
+the learned choices are recorded. Add `--live-policy` or `--diagnostic-live-policy` to let one
+decide. That is refused unless `auction.yaml` declares an enforced safety posture, so a
+learned policy cannot allocate while no hard constraint is checked.
+
+`GET /health` reports which policies are loaded and whether they are acting, and every
+diagnostic response names the bidder that actually decided it.
 
 ## Main files
 
 | File | Purpose |
 |---|---|
-| `allocation/rl/encoder.py` | Defines the 22 state features and six actions. |
-| `allocation/rl/qlearn.py` | Implements replay, TD updates, target values, and fitting. |
-| `allocation/rl/policy.py` | Loads the weights and produces auction decisions. |
-| `allocation/sim/dataset.py` | Builds transitions and shift episodes. |
-| `scripts/build_dataset.py` | Generates the training dataset. |
-| `scripts/train_q.py` | Trains and saves a Q-learning model. |
-| `scripts/resolve_comparison.py` | Compares the model with the baseline using paired simulations. |
-| `allocation/config/reward.yaml` | Defines the reward values and discount factor. |
+| `allocation/contracts.py` | Frozen types that cross layer boundaries. |
+| `allocation/rl/encoder.py` | Defines the bed state features and action space. |
+| `allocation/rl/policy.py` | Loads bed weights and produces auction decisions. |
+| `allocation/profiles/registry.py` | Generic resource-profile machinery; no use case. |
+| `allocation/use_cases/bed/profiles/` | The six bed profiles. |
+| `allocation/use_cases/diagnostic_machine/encoder.py` | Defines the diagnostic state features. |
+| `allocation/use_cases/diagnostic_machine/policy.py` | The deterministic diagnostic bidder. |
+| `allocation/use_cases/diagnostic_machine/serving.py` | Loads diagnostic weights and serves them. |
+| `allocation/use_cases/diagnostic_machine/auction.py` | One diagnostic auction, on the shared core. |
+| `allocation/api/app.py` | HTTP routes for both families. |
+| `allocation/api/diagnostic.py` | Service functions behind `/diagnostic/*`. |
+| `allocation/config/reward.yaml` | Bed reward values and discount factor. |
+| `allocation/config/` | Shared tables: thresholds, auction, rules, bed caps and budgets. |
+| `allocation/use_cases/diagnostic_machine/config/` | Per-modality caps, budgets, pathway and reward. |

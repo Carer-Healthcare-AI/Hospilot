@@ -49,7 +49,7 @@ OPEN_PATHS = frozenset({"/health"})
 #: breaking the deployed one to tidy the list would be a rename dressed as a cleanup.
 OutputFormat = Literal["json", "text", "steps", "summary", "brief", "explain"]
 
-from allocation.api import service
+from allocation.api import diagnostic, service
 from allocation.api.service import (
     ApiError,
     AuctionRequest,
@@ -134,6 +134,52 @@ class AuctionBody(BaseModel):
     )
 
 
+class DiagnosticAuctionBody(BaseModel):
+    """``POST /diagnostic/auction``.
+
+    Name the world exactly one way. ``scenario`` and ``query`` need no patient data and are
+    the demo and smoke-check paths; ``machines`` + ``requests`` is the real one and, like
+    ``candidates`` on the bed route, is refused unless the process was started with a key.
+    """
+
+    scenario: str | None = Field(
+        default=None, description="fixture name from GET /diagnostic/scenarios"
+    )
+    query: str | None = Field(
+        default=None,
+        description="a diagnostic allocation question, resolved to a scenario. Refuses with "
+                    "the evidence it found rather than inventing a missing clinical value",
+    )
+    machines: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="machine state: machine_id, modality, status, window_starts_at, "
+                    "window_ends_at, capabilities[], allocations[], setup_minutes, "
+                    "cleanup_minutes. All machines in one auction share one modality. "
+                    "Requires ALLOCATION_API_KEY",
+    )
+    requests: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="the requests to auction between, one per agent: request_id, "
+                    "patient_token, agent, eligible_modalities[], requested_at, "
+                    "latest_useful_at, estimated_duration_minutes, diagnostic_yield, "
+                    "management_impact_probability, management_impact_importance, "
+                    "required_capabilities[]. No clinical number is defaulted. "
+                    "Requires ALLOCATION_API_KEY",
+    )
+    regime: str = Field(
+        default="normal", description="budget regime: normal | constrained | exhausted"
+    )
+    mode: str = Field(
+        default="simulation", description="simulation | advisory | replay. live is refused"
+    )
+    opened_at: str | None = Field(
+        default=None, description="ISO timestamp the auction opens at; inline runs only"
+    )
+    derivation: bool = Field(
+        default=False, description="include the complete mathematical trace as JSON"
+    )
+
+
 class SessionBody(BaseModel):
     """``POST /session``. Many auctions against one ledger — this is what shows burn rate."""
 
@@ -162,6 +208,8 @@ def create_app(
     api_key: str | None = None,
     policy_path: Path | None = None,
     policy_live: bool = False,
+    diagnostic_policy_path: Path | None = None,
+    diagnostic_policy_live: bool = False,
 ) -> FastAPI:
     """Build the app.
 
@@ -183,12 +231,17 @@ def create_app(
         api_key_configured=bool(api_key),
         policy_path=policy_path,
         policy_live=policy_live,
+        diagnostic_policy_path=diagnostic_policy_path,
+        diagnostic_policy_live=diagnostic_policy_live,
     )
     config = service.load(settings)
     # Loaded once, at startup, and for the same reason the config is: so a mismatched encoder
     # or a refused --live-policy stops the process rather than failing every request that asks
     # for it. Weights are immutable; the policy wrapper around them is built per request.
     weights = service.load_policy(settings, config)
+    # The diagnostic family loads its own, for the same reason and at the same moment: a
+    # mismatched encoder should stop the process, not every request that asks for it.
+    diagnostic_policy = service.load_diagnostic_policy(settings, config)
     store = RunStore(settings.store_size)
 
     app = FastAPI(
@@ -200,6 +253,7 @@ def create_app(
     app.state.config = config
     app.state.store = store
     app.state.weights = weights
+    app.state.diagnostic_policy = diagnostic_policy
 
     @app.exception_handler(ApiError)
     async def _api_error(_: Request, exc: ApiError) -> JSONResponse:
@@ -257,6 +311,70 @@ def create_app(
             "directory": str(settings.scenario_dir),
             "scenarios": list(service.scenario_names(settings)),
         }
+
+    # -- diagnostic machines -------------------------------------------------------------
+    #
+    # A separate surface rather than a resource type on /auction: a diagnostic auction
+    # allocates a capacity interval against a deadline, and no bed-shaped body describes it.
+    # See allocation/api/diagnostic.py for the full reasoning.
+
+    @app.get("/diagnostic/modalities", summary="Diagnostic modalities and their tables")
+    def diagnostic_modalities() -> dict[str, Any]:
+        return diagnostic.modalities_json()
+
+    @app.get("/diagnostic/scenarios", summary="Deterministic diagnostic fixtures")
+    def diagnostic_scenarios() -> dict[str, Any]:
+        return diagnostic.scenarios_json()
+
+    @app.post(
+        "/diagnostic/auction",
+        summary="Run one diagnostic-machine auction and return the full bid ladder",
+    )
+    def post_diagnostic_auction(body: DiagnosticAuctionBody):
+        named = [n for n in ("scenario", "query", "machines") if getattr(body, n)]
+        if len(named) != 1:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "error": "name the world exactly one way: 'scenario', 'query', or "
+                             "'machines' with 'requests'",
+                    "received": named,
+                },
+            )
+        try:
+            if body.scenario:
+                return diagnostic.run_scenario(
+                    config, body.scenario, regime=body.regime,
+                    derivation=body.derivation, policy=app.state.diagnostic_policy,
+                )
+            if body.query:
+                return diagnostic.run_query(
+                    config, body.query, regime=body.regime,
+                    derivation=body.derivation, policy=app.state.diagnostic_policy,
+                )
+            # Inline state carries patient data. Same rule, and the same reason, as
+            # `candidates` on the bed route: an operator has to have decided who may call.
+            if not settings.api_key_configured:
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "error": "inline diagnostic requests carry patient data, so this "
+                                 "path is closed unless the process was started with "
+                                 "ALLOCATION_API_KEY set. Use 'scenario' for fixtures."
+                    },
+                )
+            return diagnostic.run_inline(
+                config,
+                machines=body.machines or [],
+                requests=body.requests or [],
+                regime=body.regime,
+                mode=body.mode,
+                opened_at=body.opened_at,
+            )
+        except diagnostic.DiagnosticRefused as exc:
+            return JSONResponse(
+                status_code=422, content={"error": str(exc), **exc.detail}
+            )
 
     # -- running -----------------------------------------------------------------------
 
