@@ -1,0 +1,33 @@
+{
+  "_comment": "Single source of truth for diagnostic-machine bidding cases. Mirrors rl_gateway/cases.json for the bed family: add a modality = add a block in `cases`; add/point a participant = one line in `departments`. The loader (queries.py) derives keyword->modality matching, department->engine AgentKind, and agent-node->department from here. IMPORTANT DIFFERENCE FROM BEDS: `icu` is directly eligible on every diagnostic modality (verified against profiles.MODALITIES), so the F-12 icu->ward substitution the bed gateway performs does NOT apply here and must not be copied -- icu bids as icu. CT additionally admits `appointments`, the scheduled-outpatient bidder, which no other modality has and which has no agent node; it is driven by the scheduling system, not by a department. Machine inventory is NOT here -- it is tenant state, and lives in assemble.MACHINE_REGISTRY until a real equipment table exists.",
+
+  "departments": {
+    "er":  { "agent_node": "er_agent",  "engine_kind": "er" },
+    "ot":  { "agent_node": "ot_agent",  "engine_kind": "ot" },
+    "icu": { "agent_node": "icu_agent", "engine_kind": "icu" }
+  },
+
+  "cases": [
+    {
+      "modality": "ct",
+      "default": true,
+      "participants": ["er", "ot", "icu"],
+      "keywords": ["ct", "ct scan", "cat scan", "computed tomography", "ct head", "ct chest"]
+    },
+    {
+      "modality": "mri",
+      "participants": ["er", "ot", "icu"],
+      "keywords": ["mri", "magnetic resonance", "mr imaging"]
+    },
+    {
+      "modality": "x_ray",
+      "participants": ["er", "ot", "icu"],
+      "keywords": ["x-ray", "x ray", "xray", "radiograph", "chest film", "cxr"]
+    },
+    {
+      "modality": "ultrasound",
+      "participants": ["er", "ot", "icu"],
+      "keywords": ["ultrasound", "us scan", "sonography", "doppler", "echo"]
+    }
+  ]
+}
