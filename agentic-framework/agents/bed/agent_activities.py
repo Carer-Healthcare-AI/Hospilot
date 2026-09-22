@@ -1,4 +1,5 @@
-﻿import logging
+﻿import asyncio
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -45,6 +46,12 @@ class HoldBedInput:
     session_id: str
     bed_id: str
     patient_token: str = ""
+
+
+@dataclass
+class PredictSaturationInput:
+    session_id: str
+    icu_beds: list = field(default_factory=list)
 
 
 @dataclass
@@ -583,10 +590,92 @@ async def create_equipment_task(inp: NotifyInput) -> dict:
 # -- sa_bed_prediction ----------------------------------------------------------
 
 @activity.defn
+async def predict_icu_saturation(inp: PredictSaturationInput) -> dict:
+    """Derive ICU saturation risk from Redis bed census."""
+    all_beds = await cache.get_all_beds()
+    icu_beds = [b for b in all_beds if "ICU" in (b.get("ward") or "").upper() and b.get("is_active", True)]
+    if not icu_beds:
+        return {"saturation_pct": 0, "risk": "unknown"}
+    occupied = [b for b in icu_beds if b.get("status") in ("reserved", "occupied")]
+    saturation_pct = round(len(occupied) / len(icu_beds) * 100)
+    risk = "high" if saturation_pct >= 90 else "medium" if saturation_pct >= 75 else "low"
+    logger.info("predict_icu_saturation  session=%s  saturation=%d%%  risk=%s", inp.session_id, saturation_pct, risk)
+    return {"saturation_pct": saturation_pct, "risk": risk}
+
+
+@activity.defn
+async def generate_capacity_alert(inp: NotifyInput) -> dict:
+    """Generate an alert when predicted occupancy exceeds threshold."""
+    await broadcast(inp.session_id, {
+        "type": "alert",
+        "severity": "warning",
+        "message": inp.message or "Capacity threshold exceeded.",
+        **inp.payload,
+    })
+    logger.info("generate_capacity_alert  session=%s", inp.session_id)
+    return {"alert_sent": True}
+
+
+@activity.defn
+async def trigger_surge_forecast(session_id: str) -> dict:
+    """Stub -- surge forecast trigger (no inflow time-series data yet)."""
+    logger.warning("trigger_surge_forecast  session=%s  STUB", session_id)
+    return {"forecast": None}
+
+
+@activity.defn
 async def recommend_overflow_strategy(inp: NotifyInput) -> dict:
     """Stub -- Claude reasoning over census for redistribution plan (use bed_prediction_workflow instead)."""
     logger.warning("recommend_overflow_strategy  session=%s  STUB -- delegate to bed_prediction_workflow", inp.session_id)
     return {"strategy": None}
+
+
+@activity.defn
+async def predict_discharge_probability(session_id: str) -> dict:
+    """Probability each admitted ICU patient discharges soon. Reuses the discharge
+    agent's clinical readiness logic (services.discharge.assess_discharge) and maps the
+    outcome to a probability bucket. Capped to bound cost; truncation is logged."""
+    from agents.discharge.service import assess_discharge
+
+    admissions = await cache.get_all_admissions()
+    beds = await cache.get_all_beds()
+    bed_ward = {(b.get("id") or b.get("bed_id")): (b.get("ward") or "").upper() for b in beds}
+
+    icu_adms = [
+        a for a in admissions
+        if (a.get("status") or "").lower() == "admitted"
+        and "ICU" in bed_ward.get(a.get("bed_id"), "")
+    ]
+    CAP = 20
+    truncated = len(icu_adms) > CAP
+    if truncated:
+        logger.warning("predict_discharge_probability  session=%s  capping %d ICU admissions to %d",
+                       session_id, len(icu_adms), CAP)
+    icu_adms = icu_adms[:CAP]
+
+    # blocked_reason -> probability of discharging soon
+    _PROB = {"pending_tasks": 0.5, "needs_review": 0.3, "vitals_unstable": 0.1}
+
+    async def _one(adm: dict) -> dict:
+        tasks = await repo.nursing_tasks_for(adm["id"])
+        token = adm.get("patient_token", "")
+        vitals = adm.get("vitals") or (await hasura.get_latest_vitals(token) if token else None)
+        a = await assess_discharge(adm, tasks, vitals)
+        ready = a.get("discharge_ready", False)
+        reason = a.get("blocked_reason")
+        return {
+            "admission_id": adm["id"],
+            "bed_id": adm.get("bed_id"),
+            "probability": 0.9 if ready else _PROB.get(reason, 0.3),
+            "discharge_ready": ready,
+            "blocked_reason": reason,
+        }
+
+    raw = await asyncio.gather(*[_one(a) for a in icu_adms], return_exceptions=True)
+    predictions = [r for r in raw if isinstance(r, dict)]
+    predictions.sort(key=lambda p: p["probability"], reverse=True)
+    logger.info("predict_discharge_probability  session=%s  predictions=%d", session_id, len(predictions))
+    return {"predictions": predictions, "truncated": truncated}
 
 
 @activity.defn
@@ -607,6 +696,44 @@ async def trigger_clearance_workflow(session_id: str) -> dict:
     """Stub -- trigger billing/pharmacy clearance for discharge (no clearance workflow yet)."""
     logger.warning("trigger_clearance_workflow  session=%s  STUB", session_id)
     return {"triggered": False}
+
+
+@activity.defn
+async def predict_discharge_horizon(session_id: str) -> dict:
+    """Forecast time-to-next-discharge for bed planning using the Fabric discharge
+    horizon counts. horizon_minutes is the soonest window with an expected discharge
+    (0 if patients are already discharge-ready). Degrades gracefully if Fabric is down."""
+    try:
+        ready_now   = await hasura.get_discharge_ready_count()
+        freeing_4h  = await hasura.get_discharge_horizon(4)
+        freeing_24h = await hasura.get_discharge_horizon(24)
+    except Exception as exc:
+        logger.warning("predict_discharge_horizon  session=%s  fabric unavailable: %s", session_id, exc)
+        return {"horizon_minutes": None, "freeing_4h": None, "freeing_24h": None, "error": "fabric_unavailable"}
+
+    if ready_now and ready_now > 0:
+        horizon = 0
+    elif freeing_4h and freeing_4h > 0:
+        horizon = 240
+    elif freeing_24h and freeing_24h > 0:
+        horizon = 1440
+    else:
+        horizon = None
+    logger.info("predict_discharge_horizon  session=%s  horizon=%s  ready_now=%s  4h=%s  24h=%s",
+                session_id, horizon, ready_now, freeing_4h, freeing_24h)
+    return {
+        "horizon_minutes": horizon,
+        "discharge_ready_now": ready_now,
+        "freeing_4h": freeing_4h,
+        "freeing_24h": freeing_24h,
+    }
+
+
+@activity.defn
+async def run_surge_model(session_id: str) -> dict:
+    """Stub -- ER admission surge demand model (no inflow data yet)."""
+    logger.warning("run_surge_model  session=%s  STUB", session_id)
+    return {"demand_forecast": None}
 
 
 @activity.defn
