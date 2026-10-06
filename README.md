@@ -1,9 +1,8 @@
 # Hospilot
 
-**The open-source Agentic AI Operating Layer for Hospital Operations.**
+**The open-source Agentic AI Operating Layer for Hospital Operations, built by [Carer Healthcare AI](https://carer.ai).**
 
-<img width="1918" height="885" alt="ezgif com-gif-maker (3)" src="https://github.com/user-attachments/assets/afb1eee2-9588-45ee-817f-00ec9296943c" />
-
+<img width="1918" height="885" alt="Hospilot coordinating patient verification, ER triage, ICU capacity, bed management, and discharge planning agents for an incoming critical admission, then surfacing a recommendation for human review" src="https://github.com/user-attachments/assets/afb1eee2-9588-45ee-817f-00ec9296943c" />
 
 Hospitals already have a HIS/HMIS. What they don't have is something that *acts* on it.
 Hospilot sits on top of your existing hospital information system, reads what's actually
@@ -120,14 +119,6 @@ not shipped yet — listed here only once they're real.*
   not a fork of the planner.
 - **A FHIR-native integration for a new HIS** — swap what Fabric talks to upstream; the
   agents never need to know which hospital system is on the other end.
-
----
-
-## Demo
-
-> 🎬 *A 60–90 second walkthrough goes here — a surge predicted in the ER, the bottleneck
-> traced through ICU/bed/staffing, agents proposing coordinated action, a human approving
-> it. Coming soon.*
 
 ---
 
