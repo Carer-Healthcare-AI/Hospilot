@@ -104,7 +104,7 @@ async def list_approvals(
     ctx: AuthContext = Depends(require_active_user),
 ):
     org = org_id if ctx.is_super() else ctx.org_id
-    await authorized_session(session_id, ctx, org_id_hint=org)
+    await authorized_session(session_id, ctx, owner_or_admin=True, org_id_hint=org)
     approvals = await hasura.query(
         """
         query GetApprovals($session_id: uuid!) {

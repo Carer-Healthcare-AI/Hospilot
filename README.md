@@ -152,6 +152,30 @@ with no Docker at all.
 
 ---
 
+## Web App
+
+The `web/` directory is a React + Vite frontend — the canvas, agent flow views, and approval
+UI shown in the screenshot above. It talks to the agentic-framework API from Quick Start; it
+isn't included in either compose file, so run it separately.
+
+Requires **Node 20+**.
+
+```bash
+cd web
+npm install
+cp .env.example .env    # points VITE_API_URL at the agentic-framework API
+npm run dev
+```
+
+Open `http://localhost:3000`. Vite proxies `/api` and `/ws` to `VITE_API_URL`
+(`http://localhost:8000` by default), so the agentic-framework backend needs to be running
+first. `npm run build` produces a production bundle; `npm run preview` serves it locally.
+
+See [`web/README.md`](./web/README.md) for the directory structure and how auth, the
+session WebSocket, and role-gated views fit together.
+
+---
+
 ## Hospital use cases
 
 - **ER surge** — a wave of arrivals hits; is triage keeping up, and where do admissions go
