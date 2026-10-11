@@ -912,7 +912,7 @@ async def get_session(
     org_id: str | None = None,
     ctx: AuthContext = Depends(require_active_user),
 ):
-    return await authorized_session(session_id, ctx, org_id_hint=_org_for(ctx, org_id))
+    return await authorized_session(session_id, ctx, owner_or_admin=True, org_id_hint=_org_for(ctx, org_id))
 
 
 @router.patch("/sessions/{session_id}/name")
@@ -938,7 +938,7 @@ async def get_pending_approvals(
     ctx: AuthContext = Depends(require_active_user),
 ):
     org = _org_for(ctx, org_id)
-    await authorized_session(session_id, ctx, org_id_hint=org)
+    await authorized_session(session_id, ctx, owner_or_admin=True, org_id_hint=org)
     return await hasura.fetch_pending_approvals(session_id, org_id=org)
 
 
@@ -952,7 +952,7 @@ async def get_session_trace(
     (agent / task / decision) with readable titles, summaries, and input/output
     fields. Mirrors the live `trace_step` WebSocket events, so a reconnecting or
     late-joining client can replay everything that happened."""
-    await authorized_session(session_id, ctx, org_id_hint=_org_for(ctx, org_id))
+    await authorized_session(session_id, ctx, owner_or_admin=True, org_id_hint=_org_for(ctx, org_id))
     return {"session_id": session_id, "steps": await cache.get_trace(session_id)}
 
 
@@ -965,5 +965,5 @@ async def get_step_recommendations(
     """Mid-flow per-step recommendations for the session: the ordered list of
     recommendations emitted at each blocking step when it requested human input.
     Mirrors the live `step_recommendation` WebSocket events for replay."""
-    await authorized_session(session_id, ctx, org_id_hint=_org_for(ctx, org_id))
+    await authorized_session(session_id, ctx, owner_or_admin=True, org_id_hint=_org_for(ctx, org_id))
     return {"session_id": session_id, "steps": await cache.get_step_recs(session_id)}
