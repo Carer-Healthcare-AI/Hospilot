@@ -527,12 +527,15 @@ function handleEvent(event: WsEvent) {
     }
 
     case 'approval_decided': {
+      const decidedId = event.approval_id as string | undefined
       useStore.setState((s) => {
-        const remaining = s.pendingApprovals.slice(1)
+        const remaining = decidedId
+          ? s.pendingApprovals.filter((p) => p.approvalId !== decidedId)
+          : s.pendingApprovals
         if ((event.decision as string) === 'approved') {
           return { pendingApprovals: remaining, executionStatus: remaining.length > 0 ? 'waiting_approval' : 'running' }
         } else {
-          return { pendingApprovals: [], executionStatus: 'idle' }
+          return { pendingApprovals: remaining, executionStatus: remaining.length > 0 ? 'waiting_approval' : 'idle' }
         }
       })
       break
