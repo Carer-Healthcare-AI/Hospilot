@@ -65,4 +65,12 @@ src/
   expects a `widget_init` postMessage handshake carrying a token, instead of assuming
   "no token in localStorage" means logged out.
 
+## Execution trace logs
+
+The Workflows page lists every session in a table. Each row has a violet trace icon
+(`ListChecks`) next to the blue "View workflow" arrow — click it to open the Execution
+Trace modal, which shows that session's agent/task/decision steps in order, with each
+step's status, timestamps, inputs, and outputs. It's read-only and loads once on open, so
+it's best used on a session that's already paused or finished.
+
 See [`CONTRIBUTING.md`](../CONTRIBUTING.md) for coding conventions shared across the repo.
