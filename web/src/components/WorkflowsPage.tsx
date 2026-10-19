@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import {
   Loader2, Pencil, Check, X, Zap, Workflow as WorkflowIcon,
-  CheckCircle2, XCircle, Clock, Ban, ArrowUpRight, PauseCircle, Bell, ArrowLeft,
+  CheckCircle2, XCircle, Clock, Ban, ArrowUpRight, PauseCircle, Bell, ArrowLeft, ListChecks,
 } from 'lucide-react'
 import { useStore } from '../store'
 import {
   listSessions, renameSession, fetchPausedQueue, fetchAllPendingApprovals,
   type SessionSummary, type AllPendingApproval,
 } from '../services/api'
+import { TraceModal } from './execution/TraceModal'
 
 // Elapsed time since an approval was created, for the "waiting Xm" line in the popover.
 // Same unit-letter style as formatDuration below, just always counting up from a fixed
@@ -82,6 +83,7 @@ export function WorkflowsPage() {
   // Which row's pending-approvals popover is open, anchored at the bell icon's
   // position (fixed positioning so it isn't clipped by the table's scroll containers).
   const [openApprovalsFor, setOpenApprovalsFor] = useState<{ sessionId: string; x: number; y: number } | null>(null)
+  const [traceSessionId, setTraceSessionId] = useState<string | null>(null)
   const inFlight = useRef(false)
 
   const refresh = useCallback(async () => {
@@ -343,14 +345,24 @@ export function WorkflowsPage() {
 
                         {/* Action */}
                         <td className="px-4 py-3 align-top whitespace-nowrap text-right">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); openWorkflow(s.id) }}
-                            title="View workflow"
-                            aria-label="View workflow"
-                            className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:border-blue-500/60 transition-colors"
-                          >
-                            <ArrowUpRight size={14} />
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setTraceSessionId(s.id) }}
+                              title="View execution trace"
+                              aria-label="View execution trace"
+                              className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-violet-500/40 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 hover:border-violet-500/60 transition-colors"
+                            >
+                              <ListChecks size={14} />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openWorkflow(s.id) }}
+                              title="View workflow"
+                              aria-label="View workflow"
+                              className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:border-blue-500/60 transition-colors"
+                            >
+                              <ArrowUpRight size={14} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -385,6 +397,10 @@ export function WorkflowsPage() {
             ))}
           </div>
         </div>
+      )}
+
+      {traceSessionId && (
+        <TraceModal sessionId={traceSessionId} onClose={() => setTraceSessionId(null)} />
       )}
     </div>
   )
